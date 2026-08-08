@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -10,7 +11,22 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
+// A more robust singleton pattern for Firebase initialization in Next.js
+function getFirebaseInstances() {
+  if (typeof window === 'undefined') {
+    // In a server-side context
+    if (!global._firebaseApp) {
+      global._firebaseApp = initializeApp(firebaseConfig);
+      global._firestore = getFirestore(global._firebaseApp);
+      global._auth = getAuth(global._firebaseApp);
+    }
+    return { app: global._firebaseApp, db: global._firestore, auth: global._auth };
+  }
+  // In a client-side context
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+  return { app, db, auth };
+}
 
-export { db };
+export const { db, auth, app } = getFirebaseInstances();
