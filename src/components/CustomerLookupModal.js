@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR } from "@/lib/format";
@@ -19,72 +19,79 @@ function formatDate(createdAt) {
   });
 }
 
-export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer }) {
-  const [phoneQuery, setPhoneQuery] = useState("");
-  const [matches, setMatches] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
+export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, initialCustomer }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [allCustomers, setAllCustomers] = useState([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
 
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(initialCustomer || null);
   const [transactions, setTransactions] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Only needed for the browse-and-search flow; skipped when a customer
+  // was handed to us directly (e.g. from a Sales History row).
+  useEffect(() => {
+    if (!isOpen || selectedCustomer) return;
+    async function fetchCustomers() {
+      setLoadingCustomers(true);
+      try {
+        const snapshot = await getDocs(collection(db, "customers"));
+        setAllCustomers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Failed to load customers: ", error);
+        setAllCustomers([]);
+      } finally {
+        setLoadingCustomers(false);
+      }
+    }
+    fetchCustomers();
+  }, [isOpen, selectedCustomer]);
+
+  // Runs whenever a customer becomes selected, whether via search or
+  // handed to us directly.
+  useEffect(() => {
+    if (!isOpen || !selectedCustomer) return;
+    async function fetchHistory() {
+      setLoadingHistory(true);
+      try {
+        // Filtered by phone only (no orderBy) so this doesn't require a
+        // composite Firestore index; sorted client-side instead.
+        const q = query(
+          collection(db, "transactions"),
+          where("customer.phoneNumber", "==", selectedCustomer.phoneNumber)
+        );
+        const snapshot = await getDocs(q);
+        const list = snapshot.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        setTransactions(list);
+      } catch (error) {
+        console.error("Failed to load transaction history: ", error);
+        setTransactions([]);
+      } finally {
+        setLoadingHistory(false);
+      }
+    }
+    fetchHistory();
+  }, [isOpen, selectedCustomer]);
+
   const resetAndClose = () => {
-    setPhoneQuery("");
-    setMatches([]);
-    setSearched(false);
+    setSearchQuery("");
     setSelectedCustomer(null);
     setTransactions([]);
     onClose?.();
   };
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!phoneQuery.trim()) return;
-    setSearching(true);
-    setSelectedCustomer(null);
-    setTransactions([]);
-    try {
-      const q = query(
-        collection(db, "customers"),
-        where("phoneNumber", ">=", phoneQuery),
-        where("phoneNumber", "<=", phoneQuery + "")
-      );
-      const snapshot = await getDocs(q);
-      setMatches(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      console.error("Customer search failed: ", error);
-      setMatches([]);
-    } finally {
-      setSearching(false);
-      setSearched(true);
-    }
-  };
-
-  const handleSelectCustomer = async (customer) => {
-    setSelectedCustomer(customer);
-    setLoadingHistory(true);
-    try {
-      // Filtered by phone only (no orderBy) so this doesn't require a
-      // composite Firestore index; sorted client-side instead.
-      const q = query(
-        collection(db, "transactions"),
-        where("customer.phoneNumber", "==", customer.phoneNumber)
-      );
-      const snapshot = await getDocs(q);
-      const list = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setTransactions(list);
-    } catch (error) {
-      console.error("Failed to load transaction history: ", error);
-      setTransactions([]);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
   if (!isOpen) return null;
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matches = normalizedQuery
+    ? allCustomers.filter(
+        (customer) =>
+          (customer.name || "").toLowerCase().includes(normalizedQuery) ||
+          (customer.phoneNumber || "").toLowerCase().includes(normalizedQuery)
+      )
+    : [];
 
   const lifetimeTotal = transactions.reduce((sum, tx) => sum + (tx.grandTotal || 0), 0);
   const visibleTransactions = transactions.slice(0, HISTORY_DISPLAY_LIMIT);
@@ -113,52 +120,40 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer })
         </div>
 
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800">
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <input
-              type="tel"
-              value={phoneQuery}
-              onChange={(e) => setPhoneQuery(e.target.value)}
-              placeholder="Search by phone number"
-              className="flex-1 px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-1 focus:ring-emerald-500 text-gray-900 dark:text-white font-medium text-sm"
-            />
-            <button
-              type="submit"
-              disabled={!phoneQuery.trim() || searching}
-              className="px-4 py-2.5 rounded-lg font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 transition-colors"
-            >
-              {searching ? "Searching..." : "Search"}
-            </button>
-          </form>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or phone number"
+            className="w-full px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-1 focus:ring-emerald-500 text-gray-900 dark:text-white font-medium text-sm"
+          />
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {!selectedCustomer ? (
             <div className="px-5 py-4">
-              {searching ? (
-                <p className="text-sm text-gray-400 text-center py-6">Searching...</p>
-              ) : searched && matches.length === 0 ? (
+              {loadingCustomers ? (
+                <p className="text-sm text-gray-400 text-center py-6">Loading customers...</p>
+              ) : !normalizedQuery ? (
+                <p className="text-sm text-gray-400 text-center py-6">
+                  Type a name or phone number to find a customer.
+                </p>
+              ) : matches.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-6">No customer found.</p>
               ) : (
-                matches.length > 0 && (
-                  <ul className="space-y-2">
-                    {matches.map((customer) => (
-                      <li key={customer.id}>
-                        <button
-                          onClick={() => handleSelectCustomer(customer)}
-                          className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                        >
-                          <p className="font-bold text-gray-900 dark:text-white text-sm">{customer.name}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{customer.phoneNumber}</p>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )
-              )}
-              {!searched && !searching && (
-                <p className="text-sm text-gray-400 text-center py-6">
-                  Enter a phone number to find a customer.
-                </p>
+                <ul className="space-y-2">
+                  {matches.map((customer) => (
+                    <li key={customer.id}>
+                      <button
+                        onClick={() => setSelectedCustomer(customer)}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <p className="font-bold text-gray-900 dark:text-white text-sm">{customer.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{customer.phoneNumber}</p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           ) : (
@@ -231,11 +226,11 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer })
           )}
         </div>
 
-        {selectedCustomer && (
+        {selectedCustomer && onBillCustomer && (
           <div className="px-5 py-4 border-t border-gray-100 dark:border-gray-800">
             <button
               onClick={() => {
-                onBillCustomer?.(selectedCustomer);
+                onBillCustomer(selectedCustomer);
                 resetAndClose();
               }}
               className="w-full py-3 rounded-xl font-bold text-sm text-white bg-gray-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-700 transition-colors"
