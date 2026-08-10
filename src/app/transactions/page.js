@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { formatINR } from "@/lib/format";
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([]);
@@ -62,7 +63,7 @@ export default function TransactionsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right font-bold text-gray-800 dark:text-gray-200">
-                      ₹{tx.grandTotal.toFixed(2)}
+                      ₹{formatINR(tx.grandTotal)}
                     </td>
                   </tr>
                 ))

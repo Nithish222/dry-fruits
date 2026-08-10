@@ -2,6 +2,17 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, doc, runTransaction, serverTimestamp, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import ReceiptModal from "@/components/ReceiptModal";
+import PaymentModal from "@/components/PaymentModal";
+import { formatINR } from "@/lib/format";
+
+function CartIcon(props) {
+  return (
+    <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.87-4.788 2.201-7.396a1.125 1.125 0 00-1.11-1.246H4.11M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+    </svg>
+  );
+}
 
 export default function Home() {
   const [products, setProducts] = useState([]);
@@ -10,6 +21,8 @@ export default function Home() {
   const [cart, setCart] = useState([]);
   const [priceType, setPriceType] = useState("retail");
   const [showReceipt, setShowReceipt] = useState(false);
+  const [receiptData, setReceiptData] = useState(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   // New states for customer details
   const [customerName, setCustomerName] = useState("");
@@ -136,7 +149,7 @@ export default function Home() {
 
   const cartTotal = cart.reduce((total, item) => total + item.billedPrice * (item.weight_kg || 0), 0);
 
-  const handleCheckout = async () => {
+  const openPaymentModal = () => {
     if (cart.length === 0 || cartTotal <= 0) {
       alert("Cart is empty.");
       return;
@@ -146,7 +159,13 @@ export default function Home() {
       alert("Please enter customer name and phone number.");
       return;
     }
+    setShowPaymentModal(true);
+  };
 
+  const handleCheckout = async (payment) => {
+    setShowPaymentModal(false);
+
+    let transactionRef;
     try {
       await runTransaction(db, async (transaction) => {
         const productUpdates = [];
@@ -187,13 +206,14 @@ export default function Home() {
         }
 
         // 3. Create the transaction record
-        const transactionRef = doc(collection(db, "transactions"));
+        transactionRef = doc(collection(db, "transactions"));
         const transactionData = {
           items: cart.map(item => ({
             id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
             subtotal: item.billedPrice * (item.weight_kg || 0)
           })),
           priceType: priceType, grandTotal: cartTotal, createdAt: serverTimestamp(),
+          payment,
         };
         // Add customer details to transaction
         transactionData.customer = {
@@ -209,7 +229,23 @@ export default function Home() {
         }
       });
 
-      // 4. On success, show receipt and update local state
+      // 4. On success, build the receipt and show it
+      setReceiptData({
+        id: transactionRef?.id,
+        items: cart.map((item) => ({
+          id: item.id,
+          name: item.name,
+          qty: Number((item.weight_kg || 0).toFixed(3)),
+          unit: "kg",
+          price: item.billedPrice,
+          total: Number((item.billedPrice * (item.weight_kg || 0)).toFixed(2)),
+        })),
+        grandTotal: cartTotal,
+        priceType,
+        createdAt: new Date(),
+        customer: { name: customerName, phoneNumber: customerPhoneNumber },
+        payment,
+      });
       setShowReceipt(true);
       // You might want to refetch products here for the most up-to-date state,
       // or optimistically update the local state. For now, we'll clear the cart.
@@ -263,7 +299,7 @@ export default function Home() {
                       <div className="mt-auto pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between items-end">
                         <span className="text-xs font-medium text-gray-400">{product.stock_kg}kg left</span>
                         <span className="text-emerald-700 dark:text-emerald-400 font-black text-base">
-                          ₹{displayPrice} <span className="text-[10px] text-gray-500 uppercase font-bold">/{priceType}</span>
+                          ₹{formatINR(displayPrice)} <span className="text-[10px] text-gray-500 uppercase font-bold">/{priceType}</span>
                         </span>
                       </div>
                     </div>
@@ -294,8 +330,62 @@ export default function Home() {
             </div>
           </div>
           
-          {/* New Customer Input Section */}
-          <div className="p-5 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50 dark:bg-gray-950">
+            {cart.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-300 dark:text-gray-700">
+                <CartIcon className="w-12 h-12 mb-2" />
+                <p className="font-medium text-sm text-gray-400">Tap products to start billing</p>
+              </div>
+            ) : (
+              cart.map((item) => {
+                const displayValue = item.weight_kg === 0 ? "" : item.unit === "gm" ? (item.weight_kg * 1000) : item.weight_kg;
+                return (
+                  <div key={item.id} className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm relative">
+                    <button onClick={() => removeItem(item.id)} className="absolute top-3 right-3 text-gray-300 dark:text-gray-600 hover:text-red-500 font-bold">✕</button>
+                    <p className="font-bold text-gray-900 dark:text-white pr-6">{item.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">₹{formatINR(item.billedPrice)} / kg ({priceType})</p>
+
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-1">
+                        <input
+                          type="number"
+                          min="0" step={item.unit === "kg" ? "0.01" : "1"}
+                          value={displayValue}
+                          onChange={(e) => updateWeight(item.id, e.target.value)}
+                          className="w-16 bg-transparent px-2 font-bold text-gray-900 dark:text-white text-center focus:outline-none"
+                          placeholder="0"
+                        />
+                        <button
+                          onClick={() => toggleUnit(item.id)}
+                          className="bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600"
+                        >
+                          {item.unit === "kg" ? "kg" : "gm"}
+                        </button>
+                      </div>
+                      <span className="font-black text-gray-900 dark:text-white text-lg">
+                        ₹{formatINR(item.billedPrice * (item.weight_kg || 0))}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+                      {[0.05, 0.10, 0.25, 0.50, 1.00].map(w => (
+                        <button
+                          key={w}
+                          onClick={() => addQuickWeight(item.id, w)}
+                          className="text-[11px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2.5 py-1 font-semibold text-gray-600 dark:text-gray-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-300"
+                        >
+                          +{w >= 1 ? `${w}kg` : `${w*1000}g`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Customer Input Section */}
+          <div className="p-5 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
             <h3 className="text-md font-bold text-gray-900 dark:text-white mb-3">Customer Details</h3>
             <div className="space-y-3">
               <div>
@@ -343,69 +433,16 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50 dark:bg-gray-950">
-            {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <span className="text-4xl mb-2">🛒</span>
-                <p className="font-medium text-sm">Tap products to start billing</p>
-              </div>
-            ) : (
-              cart.map((item) => {
-                const displayValue = item.weight_kg === 0 ? "" : item.unit === "gm" ? (item.weight_kg * 1000) : item.weight_kg;
-                return (
-                  <div key={item.id} className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm relative">
-                    <button onClick={() => removeItem(item.id)} className="absolute top-3 right-3 text-gray-300 dark:text-gray-600 hover:text-red-500 font-bold">✕</button>
-                    <p className="font-bold text-gray-900 dark:text-white pr-6">{item.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">₹{item.billedPrice} / kg ({priceType})</p>
-                    
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-1">
-                        <input 
-                          type="number" 
-                          min="0" step={item.unit === "kg" ? "0.01" : "1"}
-                          value={displayValue} 
-                          onChange={(e) => updateWeight(item.id, e.target.value)}
-                          className="w-16 bg-transparent px-2 font-bold text-gray-900 dark:text-white text-center focus:outline-none"
-                          placeholder="0"
-                        />
-                        <button 
-                          onClick={() => toggleUnit(item.id)}
-                          className="bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600"
-                        >
-                          {item.unit === "kg" ? "kg" : "gm"}
-                        </button>
-                      </div>
-                      <span className="font-black text-gray-900 dark:text-white text-lg">
-                        ₹{(item.billedPrice * (item.weight_kg || 0)).toFixed(2)}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-gray-100 dark:border-gray-800">
-                      {[0.05, 0.10, 0.25, 0.50, 1.00].map(w => (
-                        <button 
-                          key={w} 
-                          onClick={() => addQuickWeight(item.id, w)} 
-                          className="text-[11px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2.5 py-1 font-semibold text-gray-600 dark:text-gray-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-300"
-                        >
-                          +{w >= 1 ? `${w}kg` : `${w*1000}g`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
 
           <div className="p-5 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <span className="text-gray-500 dark:text-gray-400 font-semibold">Grand Total</span>
               <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
-                ₹{cartTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                ₹{formatINR(cartTotal)}
               </span>
             </div>
             <button
-              onClick={handleCheckout}
+              onClick={openPaymentModal}
               disabled={cart.length === 0 || cartTotal === 0}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 text-white font-bold text-lg py-4 rounded-xl shadow-sm transition-all"
             >
@@ -415,26 +452,27 @@ export default function Home() {
         </div>
       </div>
 
-      {showReceipt && (
-        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl max-w-sm w-full shadow-2xl text-center border dark:border-gray-800">
-            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold">✓</div>
-            <h2 className="text-2xl font-black text-gray-900 dark:text-white">Order Complete!</h2>
-            <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">Total Received: ₹{cartTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-            <button onClick={() => { 
-              setCart([]); 
-              setShowReceipt(false); 
-              // Clear customer details for next order
-              setCustomerName("");
-              setCustomerPhoneNumber("");
-              setCustomerSuggestions([]);
-              setSelectedCustomer(null);
-            }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl mt-6 transition-all">
-              Start Next Order
-            </button>
-          </div>
-        </div>
-      )}
+      <PaymentModal
+        isOpen={showPaymentModal}
+        total={cartTotal}
+        onClose={() => setShowPaymentModal(false)}
+        onConfirm={handleCheckout}
+      />
+
+      <ReceiptModal
+        isOpen={showReceipt}
+        transaction={receiptData}
+        onClose={() => {
+          setShowReceipt(false);
+          setReceiptData(null);
+          setCart([]);
+          // Clear customer details for next order
+          setCustomerName("");
+          setCustomerPhoneNumber("");
+          setCustomerSuggestions([]);
+          setSelectedCustomer(null);
+        }}
+      />
     </main>
   );
 }
