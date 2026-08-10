@@ -4,6 +4,7 @@ import { collection, getDocs, doc, runTransaction, serverTimestamp, query, where
 import { db } from "@/lib/firebase";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
+import CustomerLookupModal from "@/components/CustomerLookupModal";
 import { formatINR } from "@/lib/format";
 
 function CartIcon(props) {
@@ -23,6 +24,7 @@ export default function Home() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showCustomerLookup, setShowCustomerLookup] = useState(false);
 
   // New states for customer details
   const [customerName, setCustomerName] = useState("");
@@ -145,6 +147,13 @@ export default function Home() {
 
   const removeItem = (id) => {
     setCart((prevCart) => prevCart.filter((item) => item.id !== id));
+  };
+
+  const handleBillCustomer = (customer) => {
+    setCustomerName(customer.name || "");
+    setCustomerPhoneNumber(customer.phoneNumber || "");
+    setSelectedCustomer(customer);
+    setShowCustomerSuggestions(false);
   };
 
   const cartTotal = cart.reduce((total, item) => total + item.billedPrice * (item.weight_kg || 0), 0);
@@ -386,7 +395,15 @@ export default function Home() {
 
           {/* Customer Input Section */}
           <div className="p-5 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
-            <h3 className="text-md font-bold text-gray-900 dark:text-white mb-3">Customer Details</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-md font-bold text-gray-900 dark:text-white">Customer Details</h3>
+              <button
+                onClick={() => setShowCustomerLookup(true)}
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+              >
+                Lookup Customer
+              </button>
+            </div>
             <div className="space-y-3">
               <div>
                 <input
@@ -451,6 +468,12 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      <CustomerLookupModal
+        isOpen={showCustomerLookup}
+        onClose={() => setShowCustomerLookup(false)}
+        onBillCustomer={handleBillCustomer}
+      />
 
       <PaymentModal
         isOpen={showPaymentModal}
