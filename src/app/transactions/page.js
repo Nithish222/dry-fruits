@@ -4,6 +4,14 @@ import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR } from "@/lib/format";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
+import PageHeader from "@/components/ui/PageHeader";
+import Card from "@/components/ui/Card";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
+import Skeleton from "@/components/ui/Skeleton";
+import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
+
+const SKELETON_ROWS = 6;
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([]);
@@ -56,77 +64,79 @@ export default function TransactionsPage() {
 
   return (
     <main className="p-6 md:p-8 h-full flex flex-col w-full bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors duration-300">
-      <header className="mb-6 bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 transition-colors">
-        <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Sales History</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Review all completed transactions</p>
-      </header>
+      <PageHeader title="Sales History" subtitle="Review all completed transactions" />
 
       <div className="mb-4">
-        <input
+        <Input
           type="text"
+          size="lg"
+          className="w-full max-w-md font-medium"
           placeholder="Search by customer name or phone number..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full max-w-md px-5 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 focus:ring-2 focus:ring-emerald-500 text-gray-900 dark:text-white font-medium"
         />
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-800 dark:text-gray-400">
+      <Card padding="p-0" className="overflow-hidden">
+        <Table variant="comfortable">
+          <THead>
+            <Th>Date</Th>
+            <Th>Customer</Th>
+            <Th>Total Items</Th>
+            <Th>Price Mode</Th>
+            <Th align="right">Total Amount</Th>
+          </THead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                <Tr key={i}>
+                  <Td><Skeleton className="h-4 w-28" /></Td>
+                  <Td><Skeleton className="h-4 w-32" /></Td>
+                  <Td><Skeleton className="h-4 w-10" /></Td>
+                  <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
+                  <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
+                </Tr>
+              ))
+            ) : filteredTransactions.length === 0 ? (
               <tr>
-                <th scope="col" className="px-6 py-3">Date</th>
-                <th scope="col" className="px-6 py-3">Customer</th>
-                <th scope="col" className="px-6 py-3">Total Items</th>
-                <th scope="col" className="px-6 py-3">Price Mode</th>
-                <th scope="col" className="px-6 py-3 text-right">Total Amount</th>
+                <td colSpan="5" className="text-center py-10 text-gray-500 dark:text-gray-400">
+                  {searchQuery ? "No matching transactions found." : "No transactions found."}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="5" className="text-center py-10">Loading transactions...</td></tr>
-              ) : filteredTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="text-center py-10">
-                    {searchQuery ? "No matching transactions found." : "No transactions found."}
-                  </td>
-                </tr>
-              ) : (
-                filteredTransactions.map((tx) => (
-                  <tr key={tx.id} className="bg-white dark:bg-gray-900 border-b dark:border-gray-800 hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
-                    <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
-                      {tx.createdAt ? new Date(tx.createdAt.seconds * 1000).toLocaleString() : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4">
-                      {tx.customer?.phoneNumber ? (
-                        <button
-                          onClick={() => openCustomerLookup(tx.customer)}
-                          className="text-left hover:underline"
-                        >
-                          <p className="font-medium text-gray-900 dark:text-white">{tx.customer?.name || "N/A"}</p>
-                          <p className="text-xs text-gray-400">{tx.customer?.phoneNumber}</p>
-                        </button>
-                      ) : (
-                        <p className="font-medium text-gray-900 dark:text-white">N/A</p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">{tx.items.length}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${tx.priceType === 'retail' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {tx.priceType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right font-bold text-gray-800 dark:text-gray-200">
-                      ₹{formatINR(tx.grandTotal)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            ) : (
+              filteredTransactions.map((tx) => (
+                <Tr key={tx.id}>
+                  <Td className="font-medium text-gray-900 dark:text-white">
+                    {tx.createdAt ? new Date(tx.createdAt.seconds * 1000).toLocaleString() : "N/A"}
+                  </Td>
+                  <Td>
+                    {tx.customer?.phoneNumber ? (
+                      <button
+                        onClick={() => openCustomerLookup(tx.customer)}
+                        className="text-left hover:underline"
+                      >
+                        <p className="font-medium text-gray-900 dark:text-white">{tx.customer?.name || "N/A"}</p>
+                        <p className="text-xs text-gray-400">{tx.customer?.phoneNumber}</p>
+                      </button>
+                    ) : (
+                      <p className="font-medium text-gray-900 dark:text-white">N/A</p>
+                    )}
+                  </Td>
+                  <Td>{tx.items.length}</Td>
+                  <Td>
+                    <Badge variant={tx.priceType === "retail" ? "success" : "info"} size="sm">
+                      {tx.priceType}
+                    </Badge>
+                  </Td>
+                  <Td align="right" className="font-bold text-gray-800 dark:text-gray-200">
+                    ₹{formatINR(tx.grandTotal)}
+                  </Td>
+                </Tr>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </Card>
 
       <CustomerLookupModal
         key={lookupCustomer?.id || "none"}

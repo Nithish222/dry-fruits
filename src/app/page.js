@@ -7,14 +7,15 @@ import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
 import { formatINR, roundKg } from "@/lib/format";
 import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
+import PageHeader from "@/components/ui/PageHeader";
+import Card from "@/components/ui/Card";
+import Badge from "@/components/ui/Badge";
+import Input from "@/components/ui/Input";
+import Button from "@/components/ui/Button";
+import Skeleton from "@/components/ui/Skeleton";
+import { ShoppingCart, X } from "@/components/ui/icons";
 
-function CartIcon(props) {
-  return (
-    <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.87-4.788 2.201-7.396a1.125 1.125 0 00-1.11-1.246H4.11M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-    </svg>
-  );
-}
+const CATALOG_SKELETON_TILES = 8;
 
 // Runs the stock-checked, atomic Firestore write for one sale. Shared by the
 // live checkout flow and the background sync of queued offline sales, so a
@@ -354,50 +355,43 @@ export default function Home() {
 
   return (
     <main className="p-6 md:p-8 h-full flex flex-col w-full bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors duration-300">
-      <header className="flex justify-between items-center mb-6 bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 transition-colors">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Checkout Register</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Select items from catalog and calculate customer bills</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {pendingCount > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-950/50 px-4 py-2 rounded-xl border border-amber-200 dark:border-amber-800 shadow-sm flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-              <span className="text-sm font-bold text-amber-800 dark:text-amber-400">
+      <PageHeader
+        title="Checkout Register"
+        subtitle="Select items from catalog and calculate customer bills"
+        actions={
+          <>
+            {pendingCount > 0 && (
+              <Badge variant="warning" dot pulse={!syncing}>
                 {syncing ? "Syncing..." : `${pendingCount} pending sync`}
-              </span>
-            </div>
-          )}
-          <div
-            className={`px-4 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
-              isOnline
-                ? "bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800"
-                : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
-            }`}
-          >
-            <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-gray-400"}`}></span>
-            <span className={`text-sm font-bold ${isOnline ? "text-emerald-800 dark:text-emerald-400" : "text-gray-600 dark:text-gray-400"}`}>
+              </Badge>
+            )}
+            <Badge variant={isOnline ? "success" : "neutral"} dot pulse={isOnline}>
               {isOnline ? "System Online" : "Offline"}
-            </span>
-          </div>
-        </div>
-      </header>
+            </Badge>
+          </>
+        }
+      />
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
-        <div className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-6 transition-colors">
+        <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
           <div className="mb-6">
-            <input
+            <Input
               type="text"
+              size="lg"
+              className="w-full font-semibold"
               placeholder="Search products by name... (e.g., Cashew, Raisin)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-5 py-3.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-emerald-500 text-gray-900 dark:text-white font-semibold"
             />
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2">
             {loading ? (
-              <div className="text-center py-20 text-gray-400 font-medium">Loading catalog...</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                {Array.from({ length: CATALOG_SKELETON_TILES }).map((_, i) => (
+                  <Skeleton key={i} className="h-36 rounded-xl" />
+                ))}
+              </div>
             ) : filteredProducts.length === 0 ? (
               <div className="text-center py-20 text-gray-400 font-medium">No matching products found.</div>
             ) : (
@@ -423,20 +417,20 @@ export default function Home() {
               </div>
             )}
           </div>
-        </div>
+        </Card>
 
-        <div className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden transition-colors">
+        <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0 overflow-hidden">
           <div className="p-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">Current Bill</h2>
-            
+
             <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-lg flex text-xs font-bold border border-gray-200 dark:border-gray-700">
-              <button 
+              <button
                 onClick={() => handlePriceTypeChange("retail")}
                 className={`px-3 py-1.5 rounded-md transition-all ${priceType === "retail" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"}`}
               >
                 Retail
               </button>
-              <button 
+              <button
                 onClick={() => handlePriceTypeChange("wholesale")}
                 className={`px-3 py-1.5 rounded-md transition-all ${priceType === "wholesale" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"}`}
               >
@@ -444,11 +438,11 @@ export default function Home() {
               </button>
             </div>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50 dark:bg-gray-950">
             {cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-300 dark:text-gray-700">
-                <CartIcon className="w-12 h-12 mb-2" />
+                <ShoppingCart className="w-12 h-12 mb-2" strokeWidth={1.5} />
                 <p className="font-medium text-sm text-gray-400">Tap products to start billing</p>
               </div>
             ) : (
@@ -456,7 +450,13 @@ export default function Home() {
                 const displayValue = item.weight_kg === 0 ? "" : item.unit === "gm" ? (item.weight_kg * 1000) : item.weight_kg;
                 return (
                   <div key={item.id} className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm relative">
-                    <button onClick={() => removeItem(item.id)} className="absolute top-3 right-3 text-gray-300 dark:text-gray-600 hover:text-red-500 font-bold">✕</button>
+                    <button
+                      onClick={() => removeItem(item.id)}
+                      aria-label={`Remove ${item.name} from cart`}
+                      className="absolute top-3 right-3 text-gray-300 dark:text-gray-600 hover:text-red-500"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                     <p className="font-bold text-gray-900 dark:text-white pr-6">{item.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">₹{formatINR(item.billedPrice)} / kg ({priceType})</p>
 
@@ -512,27 +512,29 @@ export default function Home() {
             </div>
             <div className="space-y-3">
               <div>
-                <input
+                <Input
                   type="text"
+                  className="w-full font-medium"
                   placeholder="Customer Name"
+                  aria-label="Customer Name"
                   value={customerName}
                   onChange={(e) => {
                     setCustomerName(e.target.value);
                     setSelectedCustomer(null); // Clear selected customer if name changes
                   }}
-                  className="w-full px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-1 focus:ring-emerald-500 text-gray-900 dark:text-white font-medium"
                 />
               </div>
               <div className="relative">
-                <input
+                <Input
                   type="tel" // Use type="tel" for phone numbers
+                  className="w-full font-medium"
                   placeholder="Phone Number"
+                  aria-label="Phone Number"
                   value={customerPhoneNumber}
                   onChange={(e) => {
                     setCustomerPhoneNumber(e.target.value);
                     setSelectedCustomer(null); // Clear selected customer if phone changes
                   }}
-                  className="w-full px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-1 focus:ring-emerald-500 text-gray-900 dark:text-white font-medium"
                 />
                 {showCustomerSuggestions && customerSuggestions.length > 0 && (
                   <ul className="absolute z-10 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
@@ -564,15 +566,17 @@ export default function Home() {
                 ₹{formatINR(cartTotal)}
               </span>
             </div>
-            <button
+            <Button
+              variant="primary"
+              size="lg"
+              className="w-full"
               onClick={openPaymentModal}
               disabled={cart.length === 0 || cartTotal === 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 text-white font-bold text-lg py-4 rounded-xl shadow-sm transition-all"
             >
               Checkout & Pay
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       </div>
 
       <CustomerLookupModal
