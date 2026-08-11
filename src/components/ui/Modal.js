@@ -64,19 +64,19 @@ export default function Modal({
         aria-modal="true"
         aria-label={title || undefined}
         className={clsx(
-          "bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full flex flex-col overflow-hidden animate-[modal-in_0.15s_ease-out]",
+          "bg-white dark:bg-warmgray-900 rounded-2xl shadow-xl w-full flex flex-col overflow-hidden animate-[modal-in_0.15s_ease-out]",
           panelClassName
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
-            <h2 className="text-sm font-bold text-gray-900 dark:text-white tracking-wide uppercase">{title}</h2>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-warmgray-100 dark:border-warmgray-700 flex-shrink-0">
+            <h2 className="text-sm font-bold text-ink-900 dark:text-ink-50 tracking-wide uppercase">{title}</h2>
             {showClose && (
               <button
                 onClick={onClose}
                 aria-label="Close"
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg p-1 -m-1"
+                className="text-warmgray-400 hover:text-warmgray-600 dark:hover:text-warmgray-200 rounded-lg p-1 -m-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -84,7 +84,7 @@ export default function Modal({
           </div>
         )}
         <div className="flex-1 flex flex-col min-h-0">{children}</div>
-        {footer && <div className="px-5 py-4 border-t border-gray-100 dark:border-gray-800 flex-shrink-0">{footer}</div>}
+        {footer && <div className="px-5 py-4 border-t border-warmgray-100 dark:border-warmgray-700 flex-shrink-0">{footer}</div>}
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ export default function Input({ label, id, size = "md", className, labelClassNam
     <input
       id={inputId}
       className={clsx(
-        "bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-gray-900 dark:text-white transition-colors",
+        "bg-warmgray-50 dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 focus:ring-2 focus:ring-clay-400 focus:border-clay-400 outline-none text-ink-900 dark:text-ink-50 transition-colors",
         sizeStyles[size],
         className
       )}
@@ -36,7 +36,7 @@ export default function Input({ label, id, size = "md", className, labelClassNam
     <div>
       <label
         htmlFor={inputId}
-        className={clsx("block text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2", labelClassName)}
+        className={clsx("block text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400 mb-2", labelClassName)}
       >
         {label}
       </label>

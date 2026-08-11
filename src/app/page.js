@@ -5,7 +5,7 @@ import { db } from "@/lib/firebase";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
-import { formatINR, roundKg } from "@/lib/format";
+import { formatINR, roundKg, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
 import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
@@ -354,7 +354,7 @@ export default function Home() {
   };
 
   return (
-    <main className="p-6 md:p-8 h-full flex flex-col w-full bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors duration-300">
+    <main className="p-6 md:p-8 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors duration-300">
       <PageHeader
         title="Checkout Register"
         subtitle="Select items from catalog and calculate customer bills"
@@ -385,31 +385,53 @@ export default function Home() {
             />
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-2">
+          <div className="flex-1 overflow-y-auto pr-2 pt-1">
             {loading ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {Array.from({ length: CATALOG_SKELETON_TILES }).map((_, i) => (
-                  <Skeleton key={i} className="h-36 rounded-xl" />
+                  <Skeleton key={i} className="h-40 rounded-2xl" />
                 ))}
               </div>
             ) : filteredProducts.length === 0 ? (
-              <div className="text-center py-20 text-gray-400 font-medium">No matching products found.</div>
+              <div className="text-center py-20 text-warmgray-400 font-medium">No matching products found.</div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredProducts.map((product) => {
                   const displayPrice = priceType === "retail" ? product.retail_price_per_kg : product.wholesale_price_per_kg;
+                  const isLow = (product.stock_kg ?? 0) < LOW_STOCK_THRESHOLD_KG;
                   return (
                     <div
                       key={product.id}
                       onClick={() => addToCart(product)}
-                      className="bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-emerald-50/60 dark:hover:bg-emerald-950/30 hover:border-emerald-400 transition-all cursor-pointer p-4 border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col justify-between h-36 active:scale-95"
+                      className="bg-white dark:bg-warmgray-800/50 rounded-2xl hover:border-clay-400 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer p-4 border border-warmgray-200 dark:border-warmgray-700 shadow-sm flex flex-col min-h-40 active:scale-95 active:translate-y-0"
                     >
-                      <h3 className="font-bold text-gray-900 dark:text-white text-sm leading-snug">{product.name}</h3>
-                      <div className="mt-auto pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between items-end">
-                        <span className="text-xs font-medium text-gray-400">{product.stock_kg}kg left</span>
-                        <span className="text-emerald-700 dark:text-emerald-400 font-black text-base">
-                          ₹{formatINR(displayPrice)} <span className="text-[10px] text-gray-500 uppercase font-bold">/{priceType}</span>
+                      <div className="flex items-start justify-between gap-2">
+                        {product.category ? (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400 truncate min-w-0">{product.category}</span>
+                        ) : (
+                          <span />
+                        )}
+                        <span
+                          className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border ${
+                            isLow
+                              ? "bg-rust-100 dark:bg-rust-950 border-rust-200 dark:border-rust-700 text-rust-700 dark:text-rust-300"
+                              : "bg-sage-100 dark:bg-sage-950 border-sage-200 dark:border-sage-700 text-sage-700 dark:text-sage-300"
+                          }`}
+                        >
+                          {product.stock_kg}kg
                         </span>
+                      </div>
+
+                      <h3 className="font-medium text-ink-900 dark:text-ink-50 text-sm leading-snug line-clamp-2 min-h-[2.5rem] mt-1">
+                        {product.name}
+                      </h3>
+
+                      <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-black text-clay-800 dark:text-clay-400 tabular-nums">₹{formatINR(displayPrice)}</span>
+                          <span className="text-xs font-bold text-warmgray-400">/kg</span>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400 ml-auto">{priceType}</span>
                       </div>
                     </div>
                   );
@@ -420,74 +442,74 @@ export default function Home() {
         </Card>
 
         <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0 overflow-hidden">
-          <div className="p-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Current Bill</h2>
+          <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex justify-between items-center">
+            <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50">Current Bill</h2>
 
-            <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-lg flex text-xs font-bold border border-gray-200 dark:border-gray-700">
+            <div className="bg-warmgray-100 dark:bg-warmgray-800 p-1 rounded-lg flex text-xs font-bold border border-warmgray-200 dark:border-warmgray-700">
               <button
                 onClick={() => handlePriceTypeChange("retail")}
-                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "retail" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"}`}
+                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "retail" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
               >
                 Retail
               </button>
               <button
                 onClick={() => handlePriceTypeChange("wholesale")}
-                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "wholesale" ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"}`}
+                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "wholesale" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
               >
                 Wholesale
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50 dark:bg-gray-950">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-cream-50 dark:bg-cream-950">
             {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-300 dark:text-gray-700">
+              <div className="h-full flex flex-col items-center justify-center text-warmgray-300 dark:text-warmgray-700">
                 <ShoppingCart className="w-12 h-12 mb-2" strokeWidth={1.5} />
-                <p className="font-medium text-sm text-gray-400">Tap products to start billing</p>
+                <p className="font-medium text-sm text-warmgray-400">Tap products to start billing</p>
               </div>
             ) : (
               cart.map((item) => {
                 const displayValue = item.weight_kg === 0 ? "" : item.unit === "gm" ? (item.weight_kg * 1000) : item.weight_kg;
                 return (
-                  <div key={item.id} className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm relative">
+                  <div key={item.id} className="bg-white dark:bg-warmgray-900 p-4 rounded-xl border border-warmgray-200 dark:border-warmgray-700 shadow-sm relative">
                     <button
                       onClick={() => removeItem(item.id)}
                       aria-label={`Remove ${item.name} from cart`}
-                      className="absolute top-3 right-3 text-gray-300 dark:text-gray-600 hover:text-red-500"
+                      className="absolute top-3 right-3 text-warmgray-300 dark:text-warmgray-600 hover:text-rust-500"
                     >
                       <X className="w-4 h-4" />
                     </button>
-                    <p className="font-bold text-gray-900 dark:text-white pr-6">{item.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">₹{formatINR(item.billedPrice)} / kg ({priceType})</p>
+                    <p className="font-bold text-ink-900 dark:text-ink-50 pr-6">{item.name}</p>
+                    <p className="text-xs text-warmgray-500 dark:text-warmgray-400 mb-3">₹{formatINR(item.billedPrice)} / kg ({priceType})</p>
 
                     <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-1">
+                      <div className="flex items-center bg-warmgray-50 dark:bg-warmgray-800 rounded-lg border border-warmgray-200 dark:border-warmgray-700 p-1">
                         <input
                           type="number"
                           min="0" step={item.unit === "kg" ? "0.01" : "1"}
                           value={displayValue}
                           onChange={(e) => updateWeight(item.id, e.target.value)}
-                          className="w-16 bg-transparent px-2 font-bold text-gray-900 dark:text-white text-center focus:outline-none"
+                          className="w-16 bg-transparent px-2 font-bold text-ink-900 dark:text-ink-50 text-center focus:outline-none"
                           placeholder="0"
                         />
                         <button
                           onClick={() => toggleUnit(item.id)}
-                          className="bg-white dark:bg-gray-700 shadow-sm text-gray-700 dark:text-gray-200 text-xs font-bold px-2.5 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600"
+                          className="bg-white dark:bg-warmgray-700 shadow-sm text-warmgray-700 dark:text-warmgray-200 text-xs font-bold px-2.5 py-1.5 rounded-md hover:bg-warmgray-100 dark:hover:bg-warmgray-600 border border-warmgray-200 dark:border-warmgray-600"
                         >
                           {item.unit === "kg" ? "kg" : "gm"}
                         </button>
                       </div>
-                      <span className="font-black text-gray-900 dark:text-white text-lg">
+                      <span className="font-black text-ink-900 dark:text-ink-50 text-lg">
                         ₹{formatINR(item.billedPrice * (item.weight_kg || 0))}
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-warmgray-100 dark:border-warmgray-800">
                       {[0.05, 0.10, 0.25, 0.50, 1.00].map(w => (
                         <button
                           key={w}
                           onClick={() => addQuickWeight(item.id, w)}
-                          className="text-[11px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2.5 py-1 font-semibold text-gray-600 dark:text-gray-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-300"
+                          className="text-[11px] bg-warmgray-50 dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded px-2.5 py-1 font-semibold text-warmgray-600 dark:text-warmgray-300 hover:bg-clay-50 dark:hover:bg-clay-950 hover:text-clay-700 dark:hover:text-clay-400 hover:border-clay-300"
                         >
                           +{w >= 1 ? `${w}kg` : `${w*1000}g`}
                         </button>
@@ -500,12 +522,12 @@ export default function Home() {
           </div>
 
           {/* Customer Input Section */}
-          <div className="p-5 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
+          <div className="p-5 border-t border-warmgray-200 dark:border-warmgray-700 bg-cream-50 dark:bg-cream-950">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-md font-bold text-gray-900 dark:text-white">Customer Details</h3>
+              <h3 className="text-md font-bold text-ink-900 dark:text-ink-50">Customer Details</h3>
               <button
                 onClick={() => setShowCustomerLookup(true)}
-                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                className="text-xs font-bold text-clay-600 dark:text-clay-400 hover:underline"
               >
                 Lookup Customer
               </button>
@@ -537,7 +559,7 @@ export default function Home() {
                   }}
                 />
                 {showCustomerSuggestions && customerSuggestions.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                  <ul className="absolute z-10 w-full bg-white dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
                     {customerSuggestions.map((customer) => (
                       <li
                         key={customer.id}
@@ -547,10 +569,10 @@ export default function Home() {
                           setSelectedCustomer(customer);
                           setShowCustomerSuggestions(false); // Hide suggestions after selection
                         }}
-                        className="px-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 flex justify-between items-center"
+                        className="px-4 py-2 cursor-pointer hover:bg-warmgray-100 dark:hover:bg-warmgray-700 flex justify-between items-center"
                       >
-                        <span className="font-medium text-gray-900 dark:text-white">{customer.name}</span>
-                        <span className="text-gray-500 dark:text-gray-400 text-sm">{customer.phoneNumber}</span>
+                        <span className="font-medium text-ink-900 dark:text-ink-50">{customer.name}</span>
+                        <span className="text-warmgray-500 dark:text-warmgray-400 text-sm">{customer.phoneNumber}</span>
                       </li>
                     ))}
                   </ul>
@@ -559,10 +581,10 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="p-5 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 transition-colors">
+          <div className="p-5 bg-white dark:bg-warmgray-900 border-t border-warmgray-200 dark:border-warmgray-700 transition-colors">
             <div className="flex justify-between items-center mb-4">
-              <span className="text-gray-500 dark:text-gray-400 font-semibold">Grand Total</span>
-              <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+              <span className="text-warmgray-500 dark:text-warmgray-400 font-semibold">Grand Total</span>
+              <span className="text-3xl font-black text-clay-600 dark:text-clay-400">
                 ₹{formatINR(cartTotal)}
               </span>
             </div>

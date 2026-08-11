@@ -9,16 +9,16 @@ import clsx from "clsx";
 const TableVariantContext = createContext("compact");
 
 const theadRowStyles = {
-  compact: "border-b border-gray-200 dark:border-gray-800 text-left text-gray-500 dark:text-gray-400 font-semibold",
+  compact: "border-b border-warmgray-200 dark:border-warmgray-700 text-left text-warmgray-500 dark:text-warmgray-400 font-semibold",
   comfortable: undefined,
 };
 const theadStyles = {
   compact: undefined,
-  comfortable: "text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-800 dark:text-gray-400 text-left",
+  comfortable: "text-xs text-warmgray-700 uppercase bg-warmgray-50 dark:bg-warmgray-800 dark:text-warmgray-400 text-left",
 };
 const rowStyles = {
-  compact: "border-b border-gray-100 dark:border-gray-800/60",
-  comfortable: "bg-white dark:bg-gray-900 border-b dark:border-gray-800 hover:bg-gray-50/50 dark:hover:bg-gray-800/50",
+  compact: "border-b border-warmgray-100 dark:border-warmgray-800/60",
+  comfortable: "bg-white dark:bg-warmgray-900 border-b dark:border-warmgray-700 hover:bg-warmgray-50/50 dark:hover:bg-warmgray-800/50",
 };
 const cellPadding = {
   compact: "py-2 pr-4",
@@ -29,11 +29,18 @@ const headPadding = {
   comfortable: "px-6 py-3",
 };
 
+// The header sticks relative to the nearest scrolling ancestor - here
+// AppShell's <main> - so this works without an extra max-height wrapper.
+const theadStickyBg = {
+  compact: "bg-white dark:bg-warmgray-900",
+  comfortable: "bg-warmgray-50 dark:bg-warmgray-800",
+};
+
 export function Table({ variant = "compact", className, children }) {
   return (
     <TableVariantContext.Provider value={variant}>
       <div className="overflow-x-auto">
-        <table className={clsx("w-full text-sm", variant === "comfortable" && "text-left text-gray-500 dark:text-gray-400", className)}>
+        <table className={clsx("w-full text-sm", variant === "comfortable" && "text-left text-warmgray-500 dark:text-warmgray-400", className)}>
           {children}
         </table>
       </div>
@@ -44,7 +51,7 @@ export function Table({ variant = "compact", className, children }) {
 export function THead({ children }) {
   const variant = useContext(TableVariantContext);
   return (
-    <thead className={theadStyles[variant]}>
+    <thead className={clsx("sticky top-0 z-10", theadStickyBg[variant], theadStyles[variant])}>
       <tr className={theadRowStyles[variant]}>{children}</tr>
     </thead>
   );
@@ -72,7 +79,7 @@ export function Td({ className, align, children, ...rest }) {
   const variant = useContext(TableVariantContext);
   return (
     <td
-      className={clsx(cellPadding[variant], variant === "compact" && "text-gray-700 dark:text-gray-300", align === "right" && "text-right", className)}
+      className={clsx(cellPadding[variant], variant === "compact" && "text-warmgray-700 dark:text-warmgray-300", align === "right" && "text-right", className)}
       {...rest}
     >
       {children}

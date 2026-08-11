@@ -132,7 +132,7 @@ export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }
               <span>{items.length}</span>
             </div>
 
-            <div className="flex justify-between text-sm font-bold mt-2 pt-2 border-t border-gray-900">
+            <div className="flex justify-between text-sm font-bold mt-2 pt-2 border-t border-clay-800 text-clay-800">
               <span>GRAND TOTAL</span>
               <span>₹{formatINR(grandTotal)}</span>
             </div>

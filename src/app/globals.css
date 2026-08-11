@@ -3,26 +3,113 @@
 @variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fdfbf7;
+  --foreground: #2b2521;
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #1e1815;
+  --foreground: #f5f0ea;
+}
+
+/*
+ * Every Tailwind text/spacing/sizing utility here is rem-based, so scaling
+ * the root font-size scales the whole UI proportionally in one place
+ * (text, padding, gaps, icon sizes) instead of bumping each text-sm/text-xs
+ * individually across every file. Printing is reset back to 100% below -
+ * the thermal receipt's layout is tuned for actual 80mm paper and must not
+ * grow with the on-screen zoom level.
+ */
+html {
+  font-size: 125%;
+}
+
+@media print {
+  html {
+    font-size: 100%;
+  }
+}
+
+/*
+ * Southern Traders palette (see Visual-Redesign.md). Brand accent (clay) is
+ * kept deliberately separate from status colors (sage = success, rust =
+ * danger/warning) so "this is the main action" and "this is a status" never
+ * collide the way they did when both were emerald-600.
+ */
+@theme {
+  --color-clay-50: #fbf3ec;
+  --color-clay-100: #f5e4d3;
+  --color-clay-200: #eac7a8;
+  --color-clay-300: #dfa274;
+  --color-clay-400: #c9793a;
+  --color-clay-500: #b66830;
+  --color-clay-600: #a85a24;
+  --color-clay-700: #8c4a1e;
+  --color-clay-800: #6b3814;
+  --color-clay-900: #4a2610;
+  --color-clay-950: #2e170a;
+
+  --color-sage-50: #eef5f0;
+  --color-sage-100: #daeadf;
+  --color-sage-200: #b7d5c0;
+  --color-sage-300: #96bda3;
+  --color-sage-400: #6c9679;
+  --color-sage-500: #4f7a5b;
+  --color-sage-600: #3f6249;
+  --color-sage-700: #325038;
+  --color-sage-800: #26402c;
+  --color-sage-900: #1c2f21;
+  --color-sage-950: #101b13;
+
+  --color-rust-50: #fbeeec;
+  --color-rust-100: #f5d9d3;
+  --color-rust-200: #e9b0a5;
+  --color-rust-300: #d88f7e;
+  --color-rust-400: #c96f5b;
+  --color-rust-500: #b54a3a;
+  --color-rust-600: #9b3c2e;
+  --color-rust-700: #7f3025;
+  --color-rust-800: #62241c;
+  --color-rust-900: #481a14;
+  --color-rust-950: #2e100c;
+
+  --color-cream-50: #fdfbf7;
+  --color-cream-950: #1e1815;
+
+  --color-ink-50: #f5f0ea;
+  --color-ink-900: #2b2521;
+
+  --color-warmgray-50: #f7f2ea;
+  --color-warmgray-100: #eadfcf;
+  --color-warmgray-200: #d9cbb5;
+  --color-warmgray-300: #bda98f;
+  --color-warmgray-400: #8a7f73;
+  --color-warmgray-500: #756b60;
+  --color-warmgray-600: #5e564d;
+  --color-warmgray-700: #48423b;
+  --color-warmgray-800: #362f29;
+  --color-warmgray-900: #241f1b;
+
+  /* Real type scale (32/24/18/14/12) - only "title" needed adding since
+     24/18/14/12 already match Tailwind's text-2xl/lg/sm/xs exactly. */
+  --text-title: 2rem;
+  --text-title--line-height: 2.375rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* Prices and weights should read as aligned columns of digits, not shift
+     width as the cart updates - see Visual-Redesign.md #3. */
+  font-variant-numeric: tabular-nums;
 }
 
 /* Used by ui/Modal.js via arbitrary `animate-[...]` utilities. */

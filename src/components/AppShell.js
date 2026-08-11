@@ -9,7 +9,7 @@ export default function AppShell({ children }) {
   const pathname = usePathname();
 
   if (loading) {
-    return <div className="w-full h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">Loading...</div>;
+    return <div className="w-full h-screen flex items-center justify-center bg-cream-50 dark:bg-cream-950 text-ink-900 dark:text-ink-50">Loading...</div>;
   }
 
   // Don't show the main layout shell on the login page
@@ -19,9 +19,9 @@ export default function AppShell({ children }) {
 
   // Show the main layout shell for all other authenticated pages
   return (
-    <div className="h-full m-0 p-0 flex overflow-hidden bg-gray-50 font-sans">
+    <div className="h-full m-0 p-0 flex overflow-hidden bg-cream-50 dark:bg-cream-950 font-sans">
       <Sidebar />
-      <main className="flex-1 h-full overflow-y-auto bg-gray-50 dark:bg-gray-950">
+      <main className="flex-1 h-full overflow-y-auto bg-cream-50 dark:bg-cream-950">
         {children}
       </main>
     </div>
