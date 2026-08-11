@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 const LOW_STOCK_THRESHOLD_KG = 5;
@@ -12,21 +12,26 @@ export default function AdminPage() {
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
+  // Real-time listener instead of a one-shot fetch: Firestore serves the
+  // cached snapshot instantly on (re)subscribe, so switching tabs and back
+  // doesn't cause a visible reload, and it only pushes updates when stock
+  // actually changes in the DB.
   useEffect(() => {
-    async function fetchProducts() {
-      try {
-        const querySnapshot = await getDocs(collection(db, "products"));
+    const unsubscribe = onSnapshot(
+      collection(db, "products"),
+      (querySnapshot) => {
         const productsList = querySnapshot.docs
           .map((doc) => ({ id: doc.id, ...doc.data() }))
           .sort((a, b) => (a.stock_kg ?? 0) - (b.stock_kg ?? 0));
         setProducts(productsList);
-      } catch (error) {
+        setProductsLoading(false);
+      },
+      (error) => {
         console.error("Error fetching products: ", error);
-      } finally {
         setProductsLoading(false);
       }
-    }
-    fetchProducts();
+    );
+    return () => unsubscribe();
   }, []);
 
   const handleFileChange = (e) => {

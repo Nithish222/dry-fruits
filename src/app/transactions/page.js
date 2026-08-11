@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR } from "@/lib/format";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
@@ -12,23 +12,28 @@ export default function TransactionsPage() {
   const [lookupCustomer, setLookupCustomer] = useState(null);
   const [showCustomerLookup, setShowCustomerLookup] = useState(false);
 
+  // Real-time listener instead of a one-shot fetch: Firestore serves the
+  // cached snapshot instantly on (re)subscribe, so switching tabs and back
+  // doesn't cause a visible reload, and it only pushes updates when sales
+  // history actually changes in the DB.
   useEffect(() => {
-    async function fetchTransactions() {
-      try {
-        const q = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
-        const querySnapshot = await getDocs(q);
+    const q = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(
+      q,
+      (querySnapshot) => {
         const transactionsList = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
         setTransactions(transactionsList);
-      } catch (error) {
+        setLoading(false);
+      },
+      (error) => {
         console.error("Error fetching transactions: ", error);
-      } finally {
         setLoading(false);
       }
-    }
-    fetchTransactions();
+    );
+    return () => unsubscribe();
   }, []);
 
   const filteredTransactions = transactions.filter((tx) => {
