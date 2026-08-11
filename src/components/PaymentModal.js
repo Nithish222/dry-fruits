@@ -37,10 +37,10 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm }) {
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} panelClassName="max-w-sm p-6">
-      <h2 className="text-lg font-black text-gray-900 dark:text-white mb-1">Payment</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mb-5">
+      <h2 className="text-lg font-black text-ink-900 dark:text-ink-50 mb-1">Payment</h2>
+      <p className="text-sm text-warmgray-500 dark:text-warmgray-400 font-medium mb-5">
         Amount Due:{" "}
-        <span className="font-bold text-gray-900 dark:text-white">₹{formatINR(total)}</span>
+        <span className="font-bold text-ink-900 dark:text-ink-50">₹{formatINR(total)}</span>
       </p>
 
       <div className="grid grid-cols-2 gap-3 mb-5">
@@ -48,8 +48,8 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm }) {
           onClick={() => setMode("cash")}
           className={`py-3 rounded-xl font-bold text-sm border transition-all ${
             mode === "cash"
-              ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-              : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+              ? "bg-clay-400 border-clay-400 text-white shadow-sm"
+              : "border-warmgray-200 dark:border-warmgray-700 text-warmgray-600 dark:text-warmgray-400 hover:bg-warmgray-50 dark:hover:bg-warmgray-800"
           }`}
         >
           Cash
@@ -58,8 +58,8 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm }) {
           onClick={() => setMode("gpay")}
           className={`py-3 rounded-xl font-bold text-sm border transition-all ${
             mode === "gpay"
-              ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-              : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+              ? "bg-clay-400 border-clay-400 text-white shadow-sm"
+              : "border-warmgray-200 dark:border-warmgray-700 text-warmgray-600 dark:text-warmgray-400 hover:bg-warmgray-50 dark:hover:bg-warmgray-800"
           }`}
         >
           GPay
@@ -82,17 +82,17 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm }) {
           />
           {amountReceived !== "" &&
             (changeDue >= 0 ? (
-              <p className="mt-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              <p className="mt-3 text-sm font-semibold text-sage-700 dark:text-sage-400">
                 Change to Return: ₹{formatINR(changeDue)}
               </p>
             ) : (
-              <p className="mt-3 text-sm font-semibold text-red-600 dark:text-red-400">
+              <p className="mt-3 text-sm font-semibold text-rust-600 dark:text-rust-400">
                 Short by ₹{formatINR(Math.abs(changeDue))}
               </p>
             ))}
         </div>
       ) : (
-        <div className="mb-5 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold text-emerald-800 dark:text-emerald-400">
+        <div className="mb-5 p-4 rounded-xl bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 text-sm font-semibold text-clay-800 dark:text-clay-400">
           Confirm ₹{formatINR(total)} received via GPay.
         </div>
       )}

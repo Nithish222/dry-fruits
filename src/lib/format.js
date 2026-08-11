@@ -1,3 +1,7 @@
+// Shared between the Register catalog (stock caption color) and Admin
+// (Low Stock / In Stock badge) so both surfaces agree on the same cutoff.
+export const LOW_STOCK_THRESHOLD_KG = 5;
+
 export function formatINR(value) {
   return Number(value || 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,

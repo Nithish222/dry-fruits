@@ -110,14 +110,14 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
               onBillCustomer(selectedCustomer);
               resetAndClose();
             }}
-            className="w-full py-3 rounded-xl font-bold text-sm text-white bg-gray-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-700 transition-colors"
+            className="w-full py-3 rounded-xl font-bold text-sm text-white bg-clay-400 hover:bg-clay-600 transition-colors"
           >
             Bill This Customer
           </button>
         ) : null
       }
     >
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+      <div className="px-5 py-4 border-b border-warmgray-100 dark:border-warmgray-700 flex-shrink-0">
         <Input
           type="text"
           size="md"
@@ -133,23 +133,23 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
         {!selectedCustomer ? (
           <div className="px-5 py-4">
             {loadingCustomers ? (
-              <p className="text-sm text-gray-400 text-center py-6">Loading customers...</p>
+              <p className="text-sm text-warmgray-400 text-center py-6">Loading customers...</p>
             ) : !normalizedQuery ? (
-              <p className="text-sm text-gray-400 text-center py-6">
+              <p className="text-sm text-warmgray-400 text-center py-6">
                 Type a name or phone number to find a customer.
               </p>
             ) : matches.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No customer found.</p>
+              <p className="text-sm text-warmgray-400 text-center py-6">No customer found.</p>
             ) : (
               <ul className="space-y-2">
                 {matches.map((customer) => (
                   <li key={customer.id}>
                     <button
                       onClick={() => setSelectedCustomer(customer)}
-                      className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      className="w-full text-left px-4 py-3 rounded-xl border border-warmgray-200 dark:border-warmgray-700 hover:bg-warmgray-50 dark:hover:bg-warmgray-800 transition-colors"
                     >
-                      <p className="font-bold text-gray-900 dark:text-white text-sm">{customer.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{customer.phoneNumber}</p>
+                      <p className="font-bold text-ink-900 dark:text-ink-50 text-sm">{customer.name}</p>
+                      <p className="text-xs text-warmgray-500 dark:text-warmgray-400">{customer.phoneNumber}</p>
                     </button>
                   </li>
                 ))}
@@ -163,60 +163,60 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
                 setSelectedCustomer(null);
                 setTransactions([]);
               }}
-              className="text-xs font-bold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 mb-4"
+              className="text-xs font-bold text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 mb-4"
             >
               &larr; Back to results
             </button>
 
             <div className="mb-4">
-              <p className="font-bold text-gray-900 dark:text-white text-base">
+              <p className="font-bold text-ink-900 dark:text-ink-50 text-base">
                 {selectedCustomer.name}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-warmgray-500 dark:text-warmgray-400">
                 {selectedCustomer.phoneNumber}
               </p>
             </div>
 
-            <div className="flex justify-between items-center px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 mb-4">
-              <span className="text-xs font-bold uppercase text-emerald-800 dark:text-emerald-400">
+            <div className="flex justify-between items-center px-4 py-3 rounded-xl bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 mb-4">
+              <span className="text-xs font-bold uppercase text-clay-800 dark:text-clay-300">
                 Lifetime Purchases
               </span>
-              <span className="text-lg font-black text-emerald-700 dark:text-emerald-400">
+              <span className="text-lg font-black text-clay-700 dark:text-clay-400">
                 {loadingHistory ? "..." : `₹${formatINR(lifetimeTotal)}`}
               </span>
             </div>
 
-            <p className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400 mb-2">
+            <p className="text-xs font-bold uppercase text-warmgray-500 dark:text-warmgray-400 mb-2">
               Purchase History {transactions.length > 0 ? `(${transactions.length})` : ""}
             </p>
 
             {loadingHistory ? (
-              <p className="text-sm text-gray-400 text-center py-6">Loading history...</p>
+              <p className="text-sm text-warmgray-400 text-center py-6">Loading history...</p>
             ) : transactions.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No past purchases.</p>
+              <p className="text-sm text-warmgray-400 text-center py-6">No past purchases.</p>
             ) : (
               <div className="space-y-2">
                 {visibleTransactions.map((tx) => (
                   <div
                     key={tx.id}
-                    className="flex justify-between items-center px-4 py-2.5 rounded-lg border border-gray-100 dark:border-gray-800"
+                    className="flex justify-between items-center px-4 py-2.5 rounded-lg border border-warmgray-100 dark:border-warmgray-800"
                   >
                     <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      <p className="text-sm font-semibold text-ink-900 dark:text-ink-50">
                         {formatDate(tx.createdAt)}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-xs text-warmgray-500 dark:text-warmgray-400">
                         {(tx.items || []).length} item{(tx.items || []).length === 1 ? "" : "s"} &middot;{" "}
                         {tx.priceType || "retail"}
                       </p>
                     </div>
-                    <span className="font-bold text-gray-900 dark:text-white text-sm">
+                    <span className="font-bold text-ink-900 dark:text-ink-50 text-sm">
                       ₹{formatINR(tx.grandTotal)}
                     </span>
                   </div>
                 ))}
                 {hiddenCount > 0 && (
-                  <p className="text-xs text-gray-400 text-center pt-2">
+                  <p className="text-xs text-warmgray-400 text-center pt-2">
                     +{hiddenCount} earlier order{hiddenCount === 1 ? "" : "s"} not shown
                   </p>
                 )}
