@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, getDocs, doc, runTransaction, serverTimestamp, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, onSnapshot, runTransaction, serverTimestamp, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
 import { formatINR } from "@/lib/format";
+import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
 
 function CartIcon(props) {
   return (
@@ -13,6 +14,70 @@ function CartIcon(props) {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.87-4.788 2.201-7.396a1.125 1.125 0 00-1.11-1.246H4.11M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
     </svg>
   );
+}
+
+// Runs the stock-checked, atomic Firestore write for one sale. Shared by the
+// live checkout flow and the background sync of queued offline sales, so a
+// queued sale is validated against current stock exactly like a live one.
+async function commitTransactionToFirestore(payload) {
+  const transactionRef = doc(collection(db, "transactions"));
+
+  await runTransaction(db, async (transaction) => {
+    const productUpdates = [];
+
+    for (const item of payload.items) {
+      if (item.weight_kg <= 0) {
+        throw new Error(`Weight for ${item.name} must be positive.`);
+      }
+      const productRef = doc(db, "products", item.id);
+      const productDoc = await transaction.get(productRef);
+
+      if (!productDoc.exists()) {
+        throw new Error(`Product ${item.name} not found.`);
+      }
+
+      const currentStock = productDoc.data().stock_kg;
+      if (currentStock < item.weight_kg) {
+        throw new Error(`Not enough stock for ${item.name}. Available: ${currentStock}kg, Requested: ${item.weight_kg}kg`);
+      }
+
+      productUpdates.push({ ref: productRef, newStock: currentStock - item.weight_kg });
+    }
+
+    const customerRef = doc(db, "customers", payload.customer.phoneNumber);
+    const customerDoc = await transaction.get(customerRef);
+
+    if (!customerDoc.exists()) {
+      transaction.set(customerRef, {
+        name: payload.customer.name,
+        phoneNumber: payload.customer.phoneNumber,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    transaction.set(transactionRef, {
+      items: payload.items.map((item) => ({
+        id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
+        subtotal: item.billedPrice * (item.weight_kg || 0),
+      })),
+      priceType: payload.priceType,
+      grandTotal: payload.grandTotal,
+      // Preserve the moment the sale actually happened rather than when it synced.
+      createdAt: payload.createdAt ? new Date(payload.createdAt) : serverTimestamp(),
+      payment: payload.payment,
+      customer: {
+        id: payload.customer.phoneNumber,
+        name: payload.customer.name,
+        phoneNumber: payload.customer.phoneNumber,
+      },
+    });
+
+    for (const update of productUpdates) {
+      transaction.update(update.ref, { stock_kg: update.newStock });
+    }
+  });
+
+  return transactionRef;
 }
 
 export default function Home() {
@@ -26,6 +91,10 @@ export default function Home() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCustomerLookup, setShowCustomerLookup] = useState(false);
 
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  const [pendingCount, setPendingCount] = useState(() => getPendingTransactions().length);
+  const [syncing, setSyncing] = useState(false);
+
   // New states for customer details
   const [customerName, setCustomerName] = useState("");
   const [customerPhoneNumber, setCustomerPhoneNumber] = useState("");
@@ -33,22 +102,72 @@ export default function Home() {
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null); // To store the selected customer object
 
+  // Real-time listener instead of a one-shot fetch: Firestore serves the
+  // cached snapshot instantly on (re)subscribe, so switching tabs and back
+  // doesn't cause a visible reload, and it only pushes updates when the
+  // catalog actually changes in the DB.
   useEffect(() => {
-    async function fetchProducts() {
-      try {
-        const querySnapshot = await getDocs(collection(db, "products"));
+    const unsubscribe = onSnapshot(
+      collection(db, "products"),
+      (querySnapshot) => {
         const productsList = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
         setProducts(productsList);
-      } catch (error) {
+        setLoading(false);
+      },
+      (error) => {
         console.error("Error fetching products: ", error);
-      } finally {
         setLoading(false);
       }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Flush any offline-queued sales to Firestore, one at a time, stopping the
+  // moment we hit connectivity trouble again so we don't spam retries.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function flushQueue() {
+      const queue = getPendingTransactions();
+      if (queue.length === 0) return;
+      setSyncing(true);
+      for (const entry of queue) {
+        try {
+          await commitTransactionToFirestore(entry.payload);
+          removePendingTransaction(entry.localId);
+        } catch (error) {
+          if (isOfflineError(error)) break;
+          // A real failure (e.g. stock no longer available) - leave it queued
+          // for manual follow-up rather than silently dropping the sale.
+          console.error(`Failed to sync queued transaction ${entry.localId}: `, error);
+        }
+      }
+      if (!cancelled) {
+        setPendingCount(getPendingTransactions().length);
+        setSyncing(false);
+      }
     }
-    fetchProducts();
+
+    function handleOnline() {
+      setIsOnline(true);
+      flushQueue();
+    }
+    function handleOffline() {
+      setIsOnline(false);
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    if (navigator.onLine) flushQueue();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, []);
 
   // New useEffect for customer suggestions
@@ -174,93 +293,52 @@ export default function Home() {
   const handleCheckout = async (payment) => {
     setShowPaymentModal(false);
 
-    let transactionRef;
+    const now = new Date();
+    const payload = {
+      items: cart.map((item) => ({
+        id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
+      })),
+      customer: { name: customerName, phoneNumber: customerPhoneNumber },
+      priceType,
+      grandTotal: cartTotal,
+      payment,
+      createdAt: now.toISOString(),
+    };
+
+    const buildReceipt = (id) => ({
+      id,
+      items: cart.map((item) => ({
+        id: item.id,
+        name: item.name,
+        qty: Number((item.weight_kg || 0).toFixed(3)),
+        unit: "kg",
+        price: item.billedPrice,
+        total: Number((item.billedPrice * (item.weight_kg || 0)).toFixed(2)),
+      })),
+      grandTotal: cartTotal,
+      priceType,
+      createdAt: now,
+      customer: { name: customerName, phoneNumber: customerPhoneNumber },
+      payment,
+    });
+
     try {
-      await runTransaction(db, async (transaction) => {
-        const productUpdates = [];
-
-        // 1. Read all product stocks and validate cart in one loop
-        for (const item of cart) {
-          if (item.weight_kg <= 0) {
-            throw new Error(`Weight for ${item.name} must be positive.`);
-          }
-          const productRef = doc(db, "products", item.id);
-          const productDoc = await transaction.get(productRef);
-
-          if (!productDoc.exists()) {
-            throw new Error(`Product ${item.name} not found.`);
-          }
-
-          const currentStock = productDoc.data().stock_kg;
-          if (currentStock < item.weight_kg) {
-            throw new Error(`Not enough stock for ${item.name}. Available: ${currentStock}kg, Requested: ${item.weight_kg}kg`);
-          }
-
-          // Prepare the update
-          productUpdates.push({ ref: productRef, newStock: currentStock - item.weight_kg });
-        }
-
-        // 2. Handle Customer (find or create)
-        // Use the phone number as the document ID for a predictable reference.
-        const customerRef = doc(db, "customers", customerPhoneNumber);
-        const customerDoc = await transaction.get(customerRef);
-
-        if (!customerDoc.exists()) {
-          // If the customer doesn't exist, create them.
-          transaction.set(customerRef, { 
-            name: customerName, 
-            phoneNumber: customerPhoneNumber, 
-            createdAt: serverTimestamp() 
-          });
-        }
-
-        // 3. Create the transaction record
-        transactionRef = doc(collection(db, "transactions"));
-        const transactionData = {
-          items: cart.map(item => ({
-            id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
-            subtotal: item.billedPrice * (item.weight_kg || 0)
-          })),
-          priceType: priceType, grandTotal: cartTotal, createdAt: serverTimestamp(),
-          payment,
-        };
-        // Add customer details to transaction
-        transactionData.customer = {
-          id: customerPhoneNumber, // The ID is now the phone number
-          name: customerName,
-          phoneNumber: customerPhoneNumber,
-        };
-        transaction.set(transactionRef, transactionData);
-
-        // 4. Apply all stock updates
-        for (const update of productUpdates) {
-          transaction.update(update.ref, { stock_kg: update.newStock });
-        }
-      });
-
-      // 4. On success, build the receipt and show it
-      setReceiptData({
-        id: transactionRef?.id,
-        items: cart.map((item) => ({
-          id: item.id,
-          name: item.name,
-          qty: Number((item.weight_kg || 0).toFixed(3)),
-          unit: "kg",
-          price: item.billedPrice,
-          total: Number((item.billedPrice * (item.weight_kg || 0)).toFixed(2)),
-        })),
-        grandTotal: cartTotal,
-        priceType,
-        createdAt: new Date(),
-        customer: { name: customerName, phoneNumber: customerPhoneNumber },
-        payment,
-      });
+      const transactionRef = await commitTransactionToFirestore(payload);
+      setReceiptData(buildReceipt(transactionRef.id));
       setShowReceipt(true);
-      // You might want to refetch products here for the most up-to-date state,
-      // or optimistically update the local state. For now, we'll clear the cart.
     } catch (error) {
-      console.error("Transaction failed: ", error);
-      alert(`Checkout failed: ${error.message}`);
+      if (isOfflineError(error)) {
+        // No connection right now - queue it locally and let the sync
+        // effect flush it to Firestore once we're back online. The
+        // cashier still gets a printable receipt for the customer.
+        const entry = queueTransaction(payload);
+        setPendingCount(getPendingTransactions().length);
+        setReceiptData(buildReceipt(`Pending-${entry.localId.slice(-6)}`));
+        setShowReceipt(true);
+      } else {
+        console.error("Transaction failed: ", error);
+        alert(`Checkout failed: ${error.message}`);
+      }
     }
   };
 
@@ -271,9 +349,27 @@ export default function Home() {
           <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Checkout Register</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Select items from catalog and calculate customer bills</p>
         </div>
-        <div className="bg-emerald-50 dark:bg-emerald-950/50 px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-sm flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-sm font-bold text-emerald-800 dark:text-emerald-400">System Online</span>
+        <div className="flex items-center gap-2">
+          {pendingCount > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-950/50 px-4 py-2 rounded-xl border border-amber-200 dark:border-amber-800 shadow-sm flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+              <span className="text-sm font-bold text-amber-800 dark:text-amber-400">
+                {syncing ? "Syncing..." : `${pendingCount} pending sync`}
+              </span>
+            </div>
+          )}
+          <div
+            className={`px-4 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
+              isOnline
+                ? "bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800"
+                : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+            }`}
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-gray-400"}`}></span>
+            <span className={`text-sm font-bold ${isOnline ? "text-emerald-800 dark:text-emerald-400" : "text-gray-600 dark:text-gray-400"}`}>
+              {isOnline ? "System Online" : "Offline"}
+            </span>
+          </div>
         </div>
       </header>
 
