@@ -18,6 +18,20 @@ export default function Modal({
 }) {
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  // Keep the ref current without making the setup effect below depend on
+  // onClose. Callers like PaymentModal/CustomerLookupModal define their
+  // onClose handler (handleClose/resetAndClose) inline in the component
+  // body, so it's a new function on every render - including every render
+  // caused by the modal's own controlled inputs (Amount Received, the
+  // customer search box) updating their local state on each keystroke. If
+  // that effect depended on onClose, it re-ran on every keystroke and its
+  // unconditional focus() call below stole focus back to the first
+  // focusable element in the panel, requiring a click to resume typing.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -25,7 +39,7 @@ export default function Modal({
 
     function handleKeyDown(e) {
       if (e.key === "Escape") {
-        onClose?.();
+        onCloseRef.current?.();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
@@ -49,7 +63,7 @@ export default function Modal({
       document.removeEventListener("keydown", handleKeyDown);
       triggerRef.current?.focus?.();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
