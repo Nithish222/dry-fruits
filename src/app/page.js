@@ -11,6 +11,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
 import { ShoppingCart, X } from "@/components/ui/icons";
@@ -62,6 +63,10 @@ async function commitTransactionToFirestore(payload) {
       items: payload.items.map((item) => ({
         id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
         subtotal: item.billedPrice * (item.weight_kg || 0),
+        // Snapshotted at sale time, mirroring billedPrice, so a later cost
+        // price change (or the product being deleted) never rewrites the
+        // margin on a past sale.
+        costPriceAtSale: item.cost_price_per_kg ?? null,
       })),
       priceType: payload.priceType,
       grandTotal: payload.grandTotal,
@@ -87,6 +92,7 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [cart, setCart] = useState([]);
   const [priceType, setPriceType] = useState("retail");
   const [showReceipt, setShowReceipt] = useState(false);
@@ -225,9 +231,14 @@ export default function Home() {
     return () => clearTimeout(handler);
   }, [customerName, customerPhoneNumber, allCustomers]);
 
-  const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const categories = Array.from(
+    new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
+  ).sort();
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = !categoryFilter || (product.category || "").trim() === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   const addToCart = (product) => {
     const activePrice = priceType === "retail" ? product.retail_price_per_kg : product.wholesale_price_per_kg;
@@ -308,6 +319,7 @@ export default function Home() {
     const payload = {
       items: cart.map((item) => ({
         id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
+        cost_price_per_kg: item.cost_price_per_kg ?? null,
       })),
       customer: { name: customerName, phoneNumber: customerPhoneNumber },
       priceType,
@@ -374,7 +386,7 @@ export default function Home() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
         <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
-          <div className="mb-6">
+          <div className="mb-6 flex gap-3">
             <Input
               type="text"
               size="lg"
@@ -383,6 +395,20 @@ export default function Home() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {categories.length > 0 && (
+              <Select
+                size="lg"
+                className="flex-shrink-0 font-semibold"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                aria-label="Filter by category"
+              >
+                <option value="">All categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </Select>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 pt-1">

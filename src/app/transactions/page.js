@@ -59,9 +59,32 @@ export default function TransactionsPage() {
     startOfToday.setHours(0, 0, 0, 0);
     const startSeconds = startOfToday.getTime() / 1000;
     const todays = transactions.filter((tx) => (tx.createdAt?.seconds || 0) >= startSeconds);
+
+    // Items without a costPriceAtSale snapshot (sold before this feature
+    // existed, or the product never had a cost price set) are treated as
+    // ₹0 cost rather than dropped, so the profit figure still includes
+    // their revenue - missingCostCount surfaces that the total is an
+    // overestimate rather than silently presenting it as exact.
+    let profit = 0;
+    let missingCostCount = 0;
+    for (const tx of todays) {
+      for (const item of tx.items || []) {
+        const weight = item.weight_kg || 0;
+        const revenue = item.subtotal ?? (item.billedPrice || 0) * weight;
+        if (item.costPriceAtSale != null && Number.isFinite(item.costPriceAtSale)) {
+          profit += revenue - item.costPriceAtSale * weight;
+        } else {
+          profit += revenue;
+          missingCostCount += 1;
+        }
+      }
+    }
+
     return {
       count: todays.length,
       revenue: todays.reduce((sum, tx) => sum + (tx.grandTotal || 0), 0),
+      profit,
+      missingCostCount,
     };
   }, [transactions]);
 
@@ -79,7 +102,7 @@ export default function TransactionsPage() {
     <main className="p-6 md:p-8 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors duration-300">
       <PageHeader title="Sales History" subtitle="Review all completed transactions" className="flex-shrink-0" />
 
-      <div className="mb-4 flex-shrink-0 grid grid-cols-2 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
+      <div className="mb-4 flex-shrink-0 grid grid-cols-3 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Revenue</p>
           <p className="text-2xl font-black text-clay-600 dark:text-clay-400 mt-1.5">₹{formatINR(todayStats.revenue)}</p>
@@ -87,6 +110,15 @@ export default function TransactionsPage() {
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Transactions</p>
           <p className="text-2xl font-black text-ink-900 dark:text-ink-50 mt-1.5">{todayStats.count}</p>
+        </div>
+        <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Profit</p>
+          <p className="text-2xl font-black text-sage-600 dark:text-sage-400 mt-1.5">₹{formatINR(todayStats.profit)}</p>
+          {todayStats.missingCostCount > 0 && (
+            <p className="text-[10px] font-semibold text-rust-600 dark:text-rust-400 mt-1">
+              {todayStats.missingCostCount} item{todayStats.missingCostCount === 1 ? "" : "s"} missing cost price - profit may be overstated
+            </p>
+          )}
         </div>
       </div>
 

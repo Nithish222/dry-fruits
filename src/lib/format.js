@@ -16,3 +16,14 @@ export function formatINR(value) {
 export function roundKg(value) {
   return Math.round(Number(value || 0) * 1000) / 1000;
 }
+
+// Returns null when cost isn't set (distinct from a genuine ₹0 cost) so
+// callers can render "—" instead of a misleading 100% margin.
+export function computeMargin(retailPrice, costPrice) {
+  if (costPrice === null || costPrice === undefined || !Number.isFinite(Number(costPrice))) {
+    return null;
+  }
+  const marginRs = Number(retailPrice || 0) - Number(costPrice);
+  const marginPct = retailPrice > 0 ? (marginRs / retailPrice) * 100 : null;
+  return { marginRs, marginPct };
+}
