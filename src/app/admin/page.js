@@ -1,20 +1,21 @@
 "use client";
-import { useEffect, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, increment, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 import Skeleton from "@/components/ui/Skeleton";
 import Modal from "@/components/ui/Modal";
+import { Trash2 } from "@/components/ui/icons";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
 const SKELETON_ROWS = 3;
 const EMPTY_ADD_FORM = { name: "", category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
+const EMPTY_EDIT_FORM = { category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
 
 export default function AdminPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -23,20 +24,26 @@ export default function AdminPage() {
   const [uploadStatus, setUploadStatus] = useState({ type: "", message: "" });
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
 
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
-
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [savingAdd, setSavingAdd] = useState(false);
   const [addError, setAddError] = useState("");
+
+  // Mouse-drag-to-scroll for the category chip strip. Trackpad swipes and
+  // shift+wheel already work natively on any overflow-x-auto container -
+  // this only adds the click-and-drag gesture for plain mice, which browsers
+  // don't do for a generic <div> the way they do for e.g. <input type=range>.
+  const chipStripRef = useRef(null);
+  const dragState = useRef({ isDown: false, startX: 0, startScrollLeft: 0, moved: false });
 
   // Real-time listener instead of a one-shot fetch: Firestore serves the
   // cached snapshot instantly on (re)subscribe, so switching tabs and back
@@ -60,28 +67,29 @@ export default function AdminPage() {
     return () => unsubscribe();
   }, []);
 
-  const startEdit = (product) => {
-    setConfirmDeleteId(null);
-    setEditingId(product.id);
+  const openEditModal = (product) => {
+    setEditingProduct(product);
     setEditError("");
     setEditForm({
+      category: product.category || "",
       retailPrice: String(product.retail_price_per_kg ?? 0),
       wholesalePrice: String(product.wholesale_price_per_kg ?? 0),
       // Blank (not "0") when unset - a genuine ₹0 cost and "cost not entered
       // yet" are different things and shouldn't look the same in the form.
       costPrice: product.cost_price_per_kg != null ? String(product.cost_price_per_kg) : "",
-      stockMode: "set", // "set" overwrites stock_kg, "add" restocks on top of the current value
       stockValue: String(product.stock_kg ?? 0),
     });
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm(null);
+  const closeEditModal = () => {
+    setEditingProduct(null);
+    setEditForm(EMPTY_EDIT_FORM);
     setEditError("");
   };
 
-  const handleSaveEdit = async (product) => {
+  const handleSaveEdit = async () => {
+    if (!editingProduct) return;
+    const category = editForm.category.trim();
     const retailPrice = Number(editForm.retailPrice);
     const wholesalePrice = Number(editForm.wholesalePrice);
     const stockValue = Number(editForm.stockValue);
@@ -101,29 +109,24 @@ export default function AdminPage() {
       return;
     }
     if (!Number.isFinite(stockValue) || stockValue < 0) {
-      setEditError(editForm.stockMode === "add" ? "Restock amount must be a non-negative number." : "Stock must be a non-negative number.");
+      setEditError("Stock must be a non-negative number.");
       return;
     }
 
     setSavingEdit(true);
     setEditError("");
     try {
-      // Round to gram precision before writing so this edit doesn't introduce
-      // (or perpetuate) floating-point drift in stock_kg.
-      const roundedStockValue = roundKg(stockValue);
-      await updateDoc(doc(db, "products", product.id), {
+      await updateDoc(doc(db, "products", editingProduct.id), {
+        category,
         retail_price_per_kg: retailPrice,
         wholesale_price_per_kg: wholesalePrice,
         cost_price_per_kg: costPrice,
-        // "add" uses an atomic server-side increment so it can't be clobbered by a
-        // checkout transaction decrementing stock_kg at the same moment; "set" is a
-        // deliberate overwrite of the current value. "Set to" is also the way to
-        // manually clean up a stock_kg value that already drifted (e.g.
-        // 98.35000000000001) before this rounding fix was in place.
-        stock_kg: editForm.stockMode === "add" ? increment(roundedStockValue) : roundedStockValue,
+        // Round to gram precision before writing so this edit doesn't
+        // introduce (or perpetuate) floating-point drift in stock_kg.
+        stock_kg: roundKg(stockValue),
         last_updated: serverTimestamp(),
       });
-      cancelEdit();
+      closeEditModal();
     } catch (error) {
       console.error("Failed to update product: ", error);
       setEditError("Save failed. Please try again.");
@@ -204,6 +207,7 @@ export default function AdminPage() {
   };
 
   const handleDeleteProduct = async (product) => {
+    if (!window.confirm(`Delete ${product.name}? This can't be undone.`)) return;
     setDeletingId(product.id);
     try {
       // Deleting the product doc never touches past transactions - every
@@ -211,7 +215,7 @@ export default function AdminPage() {
       // transactions/{id}.items[] at checkout time, so historical receipts
       // and sales history keep rendering correctly with no live lookup.
       await deleteDoc(doc(db, "products", product.id));
-      setConfirmDeleteId(null);
+      if (editingProduct?.id === product.id) closeEditModal();
     } catch (error) {
       console.error("Failed to delete product: ", error);
       alert("Delete failed. Please try again.");
@@ -256,12 +260,40 @@ export default function AdminPage() {
     }
   };
 
-  const categories = Array.from(
-    new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
-  ).sort();
-  const filteredProducts = categoryFilter
-    ? products.filter((p) => (p.category || "").trim() === categoryFilter)
-    : products;
+  const handleChipMouseDown = (e) => {
+    dragState.current = { isDown: true, startX: e.pageX, startScrollLeft: chipStripRef.current?.scrollLeft ?? 0, moved: false };
+  };
+  const handleChipMouseMove = (e) => {
+    const el = chipStripRef.current;
+    if (!el || !dragState.current.isDown) return;
+    const dx = e.pageX - dragState.current.startX;
+    if (Math.abs(dx) > 3) dragState.current.moved = true;
+    el.scrollLeft = dragState.current.startScrollLeft - dx;
+  };
+  const handleChipMouseUpOrLeave = () => {
+    dragState.current.isDown = false;
+  };
+  const handleChipClick = (value) => {
+    if (dragState.current.moved) return; // was a drag, not a click
+    setCategoryFilter(value);
+  };
+
+  const categoryCounts = products.reduce((acc, p) => {
+    const category = (p.category || "").trim();
+    if (category) acc[category] = (acc[category] || 0) + 1;
+    return acc;
+  }, {});
+  const categoryList = Object.keys(categoryCounts).sort();
+
+  const filteredProducts = products.filter((p) => {
+    const matchesSearch = (p.name || "").toLowerCase().includes(searchQuery.trim().toLowerCase());
+    const matchesCategory = !categoryFilter || (p.category || "").trim() === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  const editCostPriceInput = editForm.costPrice.trim();
+  const editCostPrice = editCostPriceInput === "" ? null : Number(editCostPriceInput);
+  const editMargin = computeMargin(Number(editForm.retailPrice), editCostPrice);
 
   return (
     <main className="p-8 md:p-12 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors">
@@ -282,24 +314,66 @@ export default function AdminPage() {
 
       <Card padding="p-6" className="w-full">
         <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
+          <div className="flex-shrink-0">
             <h2 className="text-2xl font-black text-ink-900 dark:text-ink-50 mb-1">Inventory</h2>
-            <p className="text-warmgray-500 dark:text-warmgray-400 font-medium text-sm">Stock and price levels for all products. Click Edit to update a product directly.</p>
+            <p className="text-warmgray-500 dark:text-warmgray-400 font-medium text-sm">Stock and price levels for all products. Click a row to edit it.</p>
           </div>
-          {categories.length > 0 && (
-            <Select
-              size="sm"
-              className="flex-shrink-0"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              aria-label="Filter by category"
-            >
-              <option value="">All categories</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </Select>
-          )}
+
+          <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+            {categoryList.length > 0 && (
+              <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
+                {/* Pinned - always visible, not part of the scrollable strip. */}
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter("")}
+                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-bold transition-colors ${
+                    categoryFilter === "" ? "bg-clay-800 text-white" : "bg-clay-50 dark:bg-clay-950/40 text-clay-800 dark:text-clay-300"
+                  }`}
+                >
+                  All ({products.length})
+                </button>
+
+                {/* Scrollable - clipped right where the search bar begins,
+                    with a fade on each edge: left toward the pinned All
+                    chip (where scrolled-past chips go), right toward search. */}
+                <div className="relative min-w-0 flex-1 max-w-xs">
+                  <div
+                    ref={chipStripRef}
+                    onMouseDown={handleChipMouseDown}
+                    onMouseMove={handleChipMouseMove}
+                    onMouseUp={handleChipMouseUpOrLeave}
+                    onMouseLeave={handleChipMouseUpOrLeave}
+                    className="flex gap-2 overflow-x-auto scrollbar-none py-1 cursor-grab active:cursor-grabbing select-none"
+                  >
+                    {categoryList.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => handleChipClick(category)}
+                        className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-bold transition-colors ${
+                          categoryFilter === category ? "bg-clay-800 text-white" : "bg-clay-50 dark:bg-clay-950/40 text-clay-800 dark:text-clay-300"
+                        }`}
+                      >
+                        {category} ({categoryCounts[category]})
+                      </button>
+                    ))}
+                  </div>
+                  <div className="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white dark:from-warmgray-900 to-transparent pointer-events-none" />
+                  <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white dark:from-warmgray-900 to-transparent pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+            <Input
+              type="text"
+              size="md"
+              className="w-48 flex-shrink-0"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search products"
+            />
+          </div>
         </div>
 
         {productsLoading ? (
@@ -326,7 +400,7 @@ export default function AdminPage() {
                   <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
                   <Td><Skeleton className="h-4 w-10" /></Td>
                   <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
-                  <Td><Skeleton className="h-7 w-12 rounded-md" /></Td>
+                  <Td><Skeleton className="h-7 w-7 rounded-md" /></Td>
                 </Tr>
               ))}
             </tbody>
@@ -334,7 +408,7 @@ export default function AdminPage() {
         ) : products.length === 0 ? (
           <div className="text-center py-10 text-warmgray-400 font-medium text-sm">No products found.</div>
         ) : filteredProducts.length === 0 ? (
-          <div className="text-center py-10 text-warmgray-400 font-medium text-sm">No products match this category.</div>
+          <div className="text-center py-10 text-warmgray-400 font-medium text-sm">No products match your search or filter.</div>
         ) : (
           <Table variant="compact">
             <THead>
@@ -352,138 +426,14 @@ export default function AdminPage() {
               {filteredProducts.map((product) => {
                 const stock = product.stock_kg ?? 0;
                 const isLow = stock < LOW_STOCK_THRESHOLD_KG;
-                const isEditing = editingId === product.id;
                 const margin = computeMargin(product.retail_price_per_kg ?? 0, product.cost_price_per_kg);
 
-                if (isEditing) {
-                  const addPreview = editForm.stockMode === "add" ? stock + (Number(editForm.stockValue) || 0) : null;
-                  const editCostPriceInput = editForm.costPrice.trim();
-                  const editCostPrice = editCostPriceInput === "" ? null : Number(editCostPriceInput);
-                  const editMargin = computeMargin(Number(editForm.retailPrice), editCostPrice);
-                  return (
-                    <Tr key={product.id} className="bg-warmgray-50 dark:bg-warmgray-800/40">
-                      <Td className="font-semibold text-ink-900 dark:text-ink-50 align-top">{product.name}</Td>
-                      <Td className="align-top text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
-                      <Td className="align-top">
-                        <Input
-                          type="number"
-                          size="sm"
-                          min="0"
-                          step="0.01"
-                          value={editForm.retailPrice}
-                          onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
-                          className="w-24"
-                        />
-                      </Td>
-                      <Td className="align-top">
-                        <Input
-                          type="number"
-                          size="sm"
-                          min="0"
-                          step="0.01"
-                          value={editForm.wholesalePrice}
-                          onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
-                          className="w-24"
-                        />
-                      </Td>
-                      <Td className="align-top">
-                        <Input
-                          type="number"
-                          size="sm"
-                          min="0"
-                          step="0.01"
-                          value={editForm.costPrice}
-                          onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
-                          className="w-24"
-                          placeholder="Blank"
-                        />
-                      </Td>
-                      <Td className="align-top">
-                        {editMargin ? (
-                          <Badge variant={editMargin.marginRs <= 0 ? "danger" : "success"} size="sm">
-                            ₹{formatINR(editMargin.marginRs)}
-                            {editMargin.marginPct != null ? ` (${editMargin.marginPct.toFixed(0)}%)` : ""}
-                          </Badge>
-                        ) : (
-                          <span className="text-warmgray-400 text-sm">—</span>
-                        )}
-                      </Td>
-                      <Td className="align-top">
-                        <div className="flex items-center gap-1 mb-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setEditForm({ ...editForm, stockMode: "set", stockValue: String(stock) })}
-                            className={`px-2 py-0.5 rounded-md text-xs font-bold ${editForm.stockMode === "set" ? "bg-clay-400 text-white" : "bg-warmgray-200 dark:bg-warmgray-700 text-warmgray-600 dark:text-warmgray-300"}`}
-                          >
-                            Set to
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditForm({ ...editForm, stockMode: "add", stockValue: "0" })}
-                            className={`px-2 py-0.5 rounded-md text-xs font-bold ${editForm.stockMode === "add" ? "bg-clay-400 text-white" : "bg-warmgray-200 dark:bg-warmgray-700 text-warmgray-600 dark:text-warmgray-300"}`}
-                          >
-                            Add stock
-                          </button>
-                        </div>
-                        <Input
-                          type="number"
-                          size="sm"
-                          min="0"
-                          step="0.001"
-                          value={editForm.stockValue}
-                          onChange={(e) => setEditForm({ ...editForm, stockValue: e.target.value })}
-                          className="w-24"
-                        />
-                        {editForm.stockMode === "add" && (
-                          <p className="text-xs text-warmgray-400 mt-1">New total: {addPreview}kg</p>
-                        )}
-                      </Td>
-                      <Td className="align-top">
-                        <Badge variant={isLow ? "danger" : "success"} size="sm">
-                          {isLow ? "⚠ Low Stock" : "In Stock"}
-                        </Badge>
-                      </Td>
-                      <Td className="align-top">
-                        <div className="flex flex-col gap-1.5">
-                          <Button variant="primary" size="sm" onClick={() => handleSaveEdit(product)} disabled={savingEdit}>
-                            {savingEdit ? "Saving..." : "Save"}
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={cancelEdit} disabled={savingEdit}>
-                            Cancel
-                          </Button>
-                        </div>
-                        {editError && <p className="text-xs text-rust-600 dark:text-rust-400 mt-1 max-w-[8rem]">{editError}</p>}
-                      </Td>
-                    </Tr>
-                  );
-                }
-
-                if (confirmDeleteId === product.id) {
-                  return (
-                    <Tr key={product.id} className="bg-rust-50/60 dark:bg-rust-950/30">
-                      <Td className="font-semibold text-ink-900 dark:text-ink-50 align-top">{product.name}</Td>
-                      <Td className="align-top text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
-                      <Td className="align-top" colSpan={6}>
-                        <p className="text-sm font-semibold text-rust-700 dark:text-rust-400">
-                          Delete {product.name}? This can&apos;t be undone.
-                        </p>
-                      </Td>
-                      <Td className="align-top">
-                        <div className="flex gap-1.5">
-                          <Button variant="danger" size="sm" onClick={() => handleDeleteProduct(product)} disabled={deletingId === product.id}>
-                            {deletingId === product.id ? "Deleting..." : "Confirm"}
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => setConfirmDeleteId(null)} disabled={deletingId === product.id}>
-                            Cancel
-                          </Button>
-                        </div>
-                      </Td>
-                    </Tr>
-                  );
-                }
-
                 return (
-                  <Tr key={product.id}>
+                  <Tr
+                    key={product.id}
+                    onClick={() => openEditModal(product)}
+                    className="cursor-pointer"
+                  >
                     <Td className="font-semibold text-ink-900 dark:text-ink-50">{product.name}</Td>
                     <Td className="text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
                     <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
@@ -506,14 +456,18 @@ export default function AdminPage() {
                       </Badge>
                     </Td>
                     <Td>
-                      <div className="flex gap-1.5">
-                        <Button variant="primary" size="sm" onClick={() => startEdit(product)}>
-                          Edit
-                        </Button>
-                        <Button variant="danger" size="sm" onClick={() => setConfirmDeleteId(product.id)}>
-                          Delete
-                        </Button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteProduct(product);
+                        }}
+                        disabled={deletingId === product.id}
+                        aria-label={`Delete ${product.name}`}
+                        className="p-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </Td>
                   </Tr>
                 );
@@ -595,6 +549,104 @@ export default function AdminPage() {
             onChange={(e) => setAddForm({ ...addForm, stockValue: e.target.value })}
           />
           {addError && <p className="text-sm text-rust-600 dark:text-rust-400 font-semibold">{addError}</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!editingProduct}
+        onClose={closeEditModal}
+        title={editingProduct?.name || ""}
+        panelClassName="max-w-md"
+        headerActions={
+          editingProduct && (
+            <button
+              type="button"
+              onClick={() => handleDeleteProduct(editingProduct)}
+              disabled={deletingId === editingProduct.id}
+              aria-label={`Delete ${editingProduct.name}`}
+              className="p-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )
+        }
+        footer={
+          <div className="flex gap-3">
+            <Button variant="secondary" size="md" className="flex-1" onClick={closeEditModal} disabled={savingEdit}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="md" className="flex-1" onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="p-5 space-y-4">
+          <Input
+            label="Category"
+            className="w-full"
+            value={editForm.category}
+            onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+            placeholder="e.g. Cashews"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Retail ₹/kg"
+              type="number"
+              min="0"
+              step="0.01"
+              className="w-full"
+              value={editForm.retailPrice}
+              onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
+            />
+            <Input
+              label="Wholesale ₹/kg"
+              type="number"
+              min="0"
+              step="0.01"
+              className="w-full"
+              value={editForm.wholesalePrice}
+              onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
+            />
+          </div>
+          <Input
+            label="Cost ₹/kg (optional)"
+            type="number"
+            min="0"
+            step="0.01"
+            className="w-full"
+            value={editForm.costPrice}
+            onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
+            placeholder="Leave blank if unknown"
+          />
+
+          {/* Read-only, always derived from Retail/Cost above - never a
+              directly-editable field, so it can't drift out of sync. Given
+              a distinct clay tint (rather than the same tone as the actual
+              inputs above) so it visually reads as a computed result, not
+              another field to fill in. */}
+          <div className="rounded-xl px-4 py-3 bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-clay-700 dark:text-clay-400">Margin (auto)</p>
+            {editMargin ? (
+              <p className="text-base font-black text-clay-800 dark:text-clay-300">
+                ₹{Math.round(editMargin.marginRs)}
+                {editMargin.marginPct != null && ` · ${editMargin.marginPct.toFixed(0)}%`}
+              </p>
+            ) : (
+              <p className="text-base font-black text-clay-800/50 dark:text-clay-300/50">—</p>
+            )}
+          </div>
+
+          <Input
+            label="Stock (kg)"
+            type="number"
+            min="0"
+            step="0.001"
+            className="w-full"
+            value={editForm.stockValue}
+            onChange={(e) => setEditForm({ ...editForm, stockValue: e.target.value })}
+          />
+          {editError && <p className="text-sm text-rust-600 dark:text-rust-400 font-semibold">{editError}</p>}
         </div>
       </Modal>
 
