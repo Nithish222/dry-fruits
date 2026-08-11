@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, getDocs, doc, onSnapshot, runTransaction, serverTimestamp, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
-import { formatINR } from "@/lib/format";
+import { formatINR, roundKg } from "@/lib/format";
 import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
 
 function CartIcon(props) {
@@ -41,7 +41,9 @@ async function commitTransactionToFirestore(payload) {
         throw new Error(`Not enough stock for ${item.name}. Available: ${currentStock}kg, Requested: ${item.weight_kg}kg`);
       }
 
-      productUpdates.push({ ref: productRef, newStock: currentStock - item.weight_kg });
+      // Round on every write so repeated decimal subtractions across many
+      // sales don't drift into floating-point noise like 98.35000000000001.
+      productUpdates.push({ ref: productRef, newStock: roundKg(currentStock - item.weight_kg) });
     }
 
     const customerRef = doc(db, "customers", payload.customer.phoneNumber);
@@ -101,6 +103,7 @@ export default function Home() {
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null); // To store the selected customer object
+  const [allCustomers, setAllCustomers] = useState(null); // Lazily-loaded, filtered client-side (see fetchCustomerSuggestions below)
 
   // Real-time listener instead of a one-shot fetch: Firestore serves the
   // cached snapshot instantly on (re)subscribe, so switching tabs and back
@@ -170,49 +173,56 @@ export default function Home() {
     };
   }, []);
 
-  // New useEffect for customer suggestions
+  // Customer suggestions are filtered client-side (like CustomerLookupModal)
+  // rather than via Firestore range queries. Firestore range (">="/"<=")
+  // filters are case-sensitive, so "raj" would never match "Raj" - and
+  // Firestore doesn't allow inequality filters on two different fields
+  // (name and phoneNumber) in the same query anyway. The customer list for
+  // a shop like this is small, so fetching it once and filtering in memory
+  // is simpler and actually correct.
   useEffect(() => {
-    const fetchCustomerSuggestions = async () => {
-      // Only show suggestions if there's some input in either field
-      if (!customerName && !customerPhoneNumber) {
+    if (!showCustomerSuggestions && !customerName && !customerPhoneNumber) return;
+    if (allCustomers !== null) return; // already loaded
+    let cancelled = false;
+    (async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "customers"));
+        if (!cancelled) {
+          setAllCustomers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        }
+      } catch (error) {
+        console.error("Error loading customers: ", error);
+        if (!cancelled) setAllCustomers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [customerName, customerPhoneNumber, showCustomerSuggestions, allCustomers]);
+
+  useEffect(() => {
+    const nameQuery = customerName.trim().toLowerCase();
+    const phoneQuery = customerPhoneNumber.trim().toLowerCase();
+
+    const handler = setTimeout(() => {
+      if (!nameQuery && !phoneQuery) {
         setCustomerSuggestions([]);
         setShowCustomerSuggestions(false);
         return;
       }
+      if (allCustomers === null) return; // still loading
 
-      try {
-        let q = collection(db, "customers");
-        let queryConstraints = [];
+      const suggestions = allCustomers.filter((customer) => {
+        const matchesName = !nameQuery || (customer.name || "").toLowerCase().includes(nameQuery);
+        const matchesPhone = !phoneQuery || (customer.phoneNumber || "").toLowerCase().includes(phoneQuery);
+        return matchesName && matchesPhone;
+      });
+      setCustomerSuggestions(suggestions);
+      setShowCustomerSuggestions(suggestions.length > 0);
+    }, 300); // Debounce search
 
-        // Build query constraints based on input
-        if (customerName) {
-          // Case-insensitive search for name starting with or containing
-          queryConstraints.push(where("name", ">=", customerName));
-          queryConstraints.push(where("name", "<=", customerName + "\uf8ff"));
-        }
-
-        // If a name is typed, and then a phone number is typed, filter by phone number too
-        // This allows for dynamic filtering of multiple users with the same name
-        if (customerPhoneNumber) {
-          queryConstraints.push(where("phoneNumber", ">=", customerPhoneNumber));
-          queryConstraints.push(where("phoneNumber", "<=", customerPhoneNumber + "\uf8ff"));
-        }
-
-        const customerQuery = query(collection(db, "customers"), ...queryConstraints);
-        const querySnapshot = await getDocs(customerQuery);
-        const suggestions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setCustomerSuggestions(suggestions);
-        setShowCustomerSuggestions(suggestions.length > 0);
-      } catch (error) {
-        console.error("Error fetching customer suggestions: ", error);
-        setCustomerSuggestions([]);
-        setShowCustomerSuggestions(false);
-      }
-    };
-
-    const handler = setTimeout(fetchCustomerSuggestions, 300); // Debounce search
     return () => clearTimeout(handler);
-  }, [customerName, customerPhoneNumber]); // Depend on both for dynamic filtering
+  }, [customerName, customerPhoneNumber, allCustomers]);
 
   const filteredProducts = products.filter((product) =>
     product.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -241,7 +251,7 @@ export default function Home() {
       prevCart.map((item) => {
         if (item.id === id) {
           const kgValue = item.unit === "gm" ? Number(newWeightVal) / 1000 : Number(newWeightVal);
-          return { ...item, weight_kg: kgValue };
+          return { ...item, weight_kg: roundKg(kgValue) };
         }
         return item;
       })
@@ -251,7 +261,7 @@ export default function Home() {
   const addQuickWeight = (id, kgToAdd) => {
     setCart((prevCart) =>
       prevCart.map((item) =>
-        item.id === id ? { ...item, weight_kg: item.weight_kg + kgToAdd } : item
+        item.id === id ? { ...item, weight_kg: roundKg(item.weight_kg + kgToAdd) } : item
       )
     );
   };

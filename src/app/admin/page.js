@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, doc, increment, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { formatINR, roundKg } from "@/lib/format";
 
 const LOW_STOCK_THRESHOLD_KG = 5;
 
@@ -11,6 +12,11 @@ export default function AdminPage() {
   const [uploadStatus, setUploadStatus] = useState({ type: "", message: "" });
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
+
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
 
   // Real-time listener instead of a one-shot fetch: Firestore serves the
   // cached snapshot instantly on (re)subscribe, so switching tabs and back
@@ -33,6 +39,67 @@ export default function AdminPage() {
     );
     return () => unsubscribe();
   }, []);
+
+  const startEdit = (product) => {
+    setEditingId(product.id);
+    setEditError("");
+    setEditForm({
+      retailPrice: String(product.retail_price_per_kg ?? 0),
+      wholesalePrice: String(product.wholesale_price_per_kg ?? 0),
+      stockMode: "set", // "set" overwrites stock_kg, "add" restocks on top of the current value
+      stockValue: String(product.stock_kg ?? 0),
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm(null);
+    setEditError("");
+  };
+
+  const handleSaveEdit = async (product) => {
+    const retailPrice = Number(editForm.retailPrice);
+    const wholesalePrice = Number(editForm.wholesalePrice);
+    const stockValue = Number(editForm.stockValue);
+
+    if (!Number.isFinite(retailPrice) || retailPrice < 0) {
+      setEditError("Retail price must be a non-negative number.");
+      return;
+    }
+    if (!Number.isFinite(wholesalePrice) || wholesalePrice < 0) {
+      setEditError("Wholesale price must be a non-negative number.");
+      return;
+    }
+    if (!Number.isFinite(stockValue) || stockValue < 0) {
+      setEditError(editForm.stockMode === "add" ? "Restock amount must be a non-negative number." : "Stock must be a non-negative number.");
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      // Round to gram precision before writing so this edit doesn't introduce
+      // (or perpetuate) floating-point drift in stock_kg.
+      const roundedStockValue = roundKg(stockValue);
+      await updateDoc(doc(db, "products", product.id), {
+        retail_price_per_kg: retailPrice,
+        wholesale_price_per_kg: wholesalePrice,
+        // "add" uses an atomic server-side increment so it can't be clobbered by a
+        // checkout transaction decrementing stock_kg at the same moment; "set" is a
+        // deliberate overwrite of the current value. "Set to" is also the way to
+        // manually clean up a stock_kg value that already drifted (e.g.
+        // 98.35000000000001) before this rounding fix was in place.
+        stock_kg: editForm.stockMode === "add" ? increment(roundedStockValue) : roundedStockValue,
+        last_updated: serverTimestamp(),
+      });
+      cancelEdit();
+    } catch (error) {
+      console.error("Failed to update product: ", error);
+      setEditError("Save failed. Please try again.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -113,9 +180,9 @@ export default function AdminPage() {
         )}
       </div>
 
-      <div className="max-w-2xl mx-auto w-full bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 mt-6">
+      <div className="max-w-4xl mx-auto w-full bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 mt-6">
         <h2 className="text-xl font-black text-gray-900 dark:text-white mb-1">Inventory</h2>
-        <p className="text-gray-500 dark:text-gray-400 font-medium mb-6 text-sm">Current stock levels for all products.</p>
+        <p className="text-gray-500 dark:text-gray-400 font-medium mb-6 text-sm">Stock and price levels for all products. Click Edit to update a product directly.</p>
 
         {productsLoading ? (
           <div className="text-center py-10 text-gray-400 font-medium text-sm">Loading inventory...</div>
@@ -126,24 +193,126 @@ export default function AdminPage() {
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-gray-500 dark:text-gray-400 font-semibold">
                 <th className="py-2 pr-4">Product</th>
+                <th className="py-2 pr-4">Retail ₹/kg</th>
+                <th className="py-2 pr-4">Wholesale ₹/kg</th>
                 <th className="py-2 pr-4">Stock (kg)</th>
-                <th className="py-2">Status</th>
+                <th className="py-2 pr-4">Status</th>
+                <th className="py-2"></th>
               </tr>
             </thead>
             <tbody>
               {products.map((product) => {
                 const stock = product.stock_kg ?? 0;
                 const isLow = stock < LOW_STOCK_THRESHOLD_KG;
+                const isEditing = editingId === product.id;
+
+                if (isEditing) {
+                  const addPreview = editForm.stockMode === "add" ? stock + (Number(editForm.stockValue) || 0) : null;
+                  return (
+                    <tr key={product.id} className="border-b border-gray-100 dark:border-gray-800/60 bg-gray-50 dark:bg-gray-800/40">
+                      <td className="py-2 pr-4 font-semibold text-gray-900 dark:text-white align-top">{product.name}</td>
+                      <td className="py-2 pr-4 align-top">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editForm.retailPrice}
+                          onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
+                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        />
+                      </td>
+                      <td className="py-2 pr-4 align-top">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editForm.wholesalePrice}
+                          onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
+                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        />
+                      </td>
+                      <td className="py-2 pr-4 align-top">
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditForm({ ...editForm, stockMode: "set", stockValue: String(stock) })}
+                            className={`px-2 py-0.5 rounded-md text-xs font-bold ${editForm.stockMode === "set" ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"}`}
+                          >
+                            Set to
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditForm({ ...editForm, stockMode: "add", stockValue: "0" })}
+                            className={`px-2 py-0.5 rounded-md text-xs font-bold ${editForm.stockMode === "add" ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"}`}
+                          >
+                            Add stock
+                          </button>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={editForm.stockValue}
+                          onChange={(e) => setEditForm({ ...editForm, stockValue: e.target.value })}
+                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        />
+                        {editForm.stockMode === "add" && (
+                          <p className="text-xs text-gray-400 mt-1">New total: {addPreview}kg</p>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 align-top">
+                        {isLow ? (
+                          <span className="text-red-700 dark:text-red-400 font-bold text-xs">⚠ Low Stock</span>
+                        ) : (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">In Stock</span>
+                        )}
+                      </td>
+                      <td className="py-2 align-top">
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(product)}
+                            disabled={savingEdit}
+                            className="px-3 py-1 rounded-md text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {savingEdit ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            disabled={savingEdit}
+                            className="px-3 py-1 rounded-md text-xs font-bold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        {editError && <p className="text-xs text-red-600 dark:text-red-400 mt-1 max-w-[8rem]">{editError}</p>}
+                      </td>
+                    </tr>
+                  );
+                }
+
                 return (
                   <tr key={product.id} className="border-b border-gray-100 dark:border-gray-800/60">
                     <td className="py-2 pr-4 font-semibold text-gray-900 dark:text-white">{product.name}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">₹{formatINR(product.retail_price_per_kg ?? 0)}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">₹{formatINR(product.wholesale_price_per_kg ?? 0)}</td>
                     <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{stock}</td>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       {isLow ? (
                         <span className="text-red-700 dark:text-red-400 font-bold text-xs">⚠ Low Stock</span>
                       ) : (
                         <span className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">In Stock</span>
                       )}
+                    </td>
+                    <td className="py-2">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(product)}
+                        className="px-3 py-1 rounded-md text-xs font-bold bg-gray-900 dark:bg-emerald-600 text-white hover:bg-black dark:hover:bg-emerald-700"
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 );
