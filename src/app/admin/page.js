@@ -3,8 +3,16 @@ import { useEffect, useState } from "react";
 import { collection, doc, increment, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR, roundKg } from "@/lib/format";
+import PageHeader from "@/components/ui/PageHeader";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
+import Skeleton from "@/components/ui/Skeleton";
+import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
 const LOW_STOCK_THRESHOLD_KG = 5;
+const SKELETON_ROWS = 3;
 
 export default function AdminPage() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -139,11 +147,12 @@ export default function AdminPage() {
 
   return (
     <main className="p-8 md:p-12 h-full flex flex-col w-full bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors">
-      <div className="max-w-2xl mx-auto w-full bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 mt-6">
-        
-        <h1 className="text-3xl font-black text-gray-900 dark:text-white mb-2">Price Setup</h1>
-        <p className="text-gray-500 dark:text-gray-400 font-medium mb-8 text-sm">Upload a new vendor spreadsheet to instantly update catalog prices across all registers.</p>
-        
+      <PageHeader
+        title="Price Setup"
+        subtitle="Upload a new vendor spreadsheet to instantly update catalog prices across all registers."
+      />
+
+      <Card padding="p-8" className="max-w-2xl mx-auto w-full">
         <form onSubmit={handleUpload} className="space-y-6">
           <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center bg-gray-50 dark:bg-gray-800/50">
             <input
@@ -155,51 +164,62 @@ export default function AdminPage() {
               className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2.5 file:px-6 file:rounded-lg file:border-0 file:bg-gray-900 dark:file:bg-emerald-600 file:text-white hover:file:bg-black dark:hover:file:bg-emerald-700 cursor-pointer mx-auto font-semibold"
             />
           </div>
-          
-          <button
-            type="submit"
-            disabled={!selectedFile || uploading}
-            className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
-              selectedFile && !uploading 
-                ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md" 
-                : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
-            }`}
-          >
+
+          <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!selectedFile || uploading}>
             {uploading ? "Syncing Database..." : "Update Live Prices"}
-          </button>
+          </Button>
         </form>
 
         {uploadStatus.message && (
           <div className={`mt-6 p-4 rounded-xl font-bold text-center text-sm ${
-            uploadStatus.type === "success" 
-              ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800" 
+            uploadStatus.type === "success"
+              ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
               : "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
           }`}>
             {uploadStatus.message}
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="max-w-4xl mx-auto w-full bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 mt-6">
+      <Card padding="p-8" className="max-w-4xl mx-auto w-full mt-6">
         <h2 className="text-xl font-black text-gray-900 dark:text-white mb-1">Inventory</h2>
         <p className="text-gray-500 dark:text-gray-400 font-medium mb-6 text-sm">Stock and price levels for all products. Click Edit to update a product directly.</p>
 
         {productsLoading ? (
-          <div className="text-center py-10 text-gray-400 font-medium text-sm">Loading inventory...</div>
+          <Table variant="compact">
+            <THead>
+              <Th>Product</Th>
+              <Th>Retail ₹/kg</Th>
+              <Th>Wholesale ₹/kg</Th>
+              <Th>Stock (kg)</Th>
+              <Th>Status</Th>
+              <Th></Th>
+            </THead>
+            <tbody>
+              {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                <Tr key={i}>
+                  <Td><Skeleton className="h-4 w-32" /></Td>
+                  <Td><Skeleton className="h-4 w-14" /></Td>
+                  <Td><Skeleton className="h-4 w-14" /></Td>
+                  <Td><Skeleton className="h-4 w-10" /></Td>
+                  <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
+                  <Td><Skeleton className="h-7 w-12 rounded-md" /></Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
         ) : products.length === 0 ? (
           <div className="text-center py-10 text-gray-400 font-medium text-sm">No products found.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-gray-500 dark:text-gray-400 font-semibold">
-                <th className="py-2 pr-4">Product</th>
-                <th className="py-2 pr-4">Retail ₹/kg</th>
-                <th className="py-2 pr-4">Wholesale ₹/kg</th>
-                <th className="py-2 pr-4">Stock (kg)</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2"></th>
-              </tr>
-            </thead>
+          <Table variant="compact">
+            <THead>
+              <Th>Product</Th>
+              <Th>Retail ₹/kg</Th>
+              <Th>Wholesale ₹/kg</Th>
+              <Th>Stock (kg)</Th>
+              <Th>Status</Th>
+              <Th></Th>
+            </THead>
             <tbody>
               {products.map((product) => {
                 const stock = product.stock_kg ?? 0;
@@ -209,29 +229,31 @@ export default function AdminPage() {
                 if (isEditing) {
                   const addPreview = editForm.stockMode === "add" ? stock + (Number(editForm.stockValue) || 0) : null;
                   return (
-                    <tr key={product.id} className="border-b border-gray-100 dark:border-gray-800/60 bg-gray-50 dark:bg-gray-800/40">
-                      <td className="py-2 pr-4 font-semibold text-gray-900 dark:text-white align-top">{product.name}</td>
-                      <td className="py-2 pr-4 align-top">
-                        <input
+                    <Tr key={product.id} className="bg-gray-50 dark:bg-gray-800/40">
+                      <Td className="font-semibold text-gray-900 dark:text-white align-top">{product.name}</Td>
+                      <Td className="align-top">
+                        <Input
                           type="number"
+                          size="sm"
                           min="0"
                           step="0.01"
                           value={editForm.retailPrice}
                           onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
-                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          className="w-24"
                         />
-                      </td>
-                      <td className="py-2 pr-4 align-top">
-                        <input
+                      </Td>
+                      <Td className="align-top">
+                        <Input
                           type="number"
+                          size="sm"
                           min="0"
                           step="0.01"
                           value={editForm.wholesalePrice}
                           onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
-                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          className="w-24"
                         />
-                      </td>
-                      <td className="py-2 pr-4 align-top">
+                      </Td>
+                      <Td className="align-top">
                         <div className="flex items-center gap-1 mb-1.5">
                           <button
                             type="button"
@@ -248,79 +270,62 @@ export default function AdminPage() {
                             Add stock
                           </button>
                         </div>
-                        <input
+                        <Input
                           type="number"
+                          size="sm"
                           min="0"
                           step="0.001"
                           value={editForm.stockValue}
                           onChange={(e) => setEditForm({ ...editForm, stockValue: e.target.value })}
-                          className="w-24 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          className="w-24"
                         />
                         {editForm.stockMode === "add" && (
                           <p className="text-xs text-gray-400 mt-1">New total: {addPreview}kg</p>
                         )}
-                      </td>
-                      <td className="py-2 pr-4 align-top">
-                        {isLow ? (
-                          <span className="text-red-700 dark:text-red-400 font-bold text-xs">⚠ Low Stock</span>
-                        ) : (
-                          <span className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">In Stock</span>
-                        )}
-                      </td>
-                      <td className="py-2 align-top">
+                      </Td>
+                      <Td className="align-top">
+                        <Badge variant={isLow ? "danger" : "success"} size="sm">
+                          {isLow ? "⚠ Low Stock" : "In Stock"}
+                        </Badge>
+                      </Td>
+                      <Td className="align-top">
                         <div className="flex flex-col gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEdit(product)}
-                            disabled={savingEdit}
-                            className="px-3 py-1 rounded-md text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                          >
+                          <Button variant="primary" size="sm" onClick={() => handleSaveEdit(product)} disabled={savingEdit}>
                             {savingEdit ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEdit}
-                            disabled={savingEdit}
-                            className="px-3 py-1 rounded-md text-xs font-bold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-                          >
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={cancelEdit} disabled={savingEdit}>
                             Cancel
-                          </button>
+                          </Button>
                         </div>
                         {editError && <p className="text-xs text-red-600 dark:text-red-400 mt-1 max-w-[8rem]">{editError}</p>}
-                      </td>
-                    </tr>
+                      </Td>
+                    </Tr>
                   );
                 }
 
                 return (
-                  <tr key={product.id} className="border-b border-gray-100 dark:border-gray-800/60">
-                    <td className="py-2 pr-4 font-semibold text-gray-900 dark:text-white">{product.name}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">₹{formatINR(product.retail_price_per_kg ?? 0)}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">₹{formatINR(product.wholesale_price_per_kg ?? 0)}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{stock}</td>
-                    <td className="py-2 pr-4">
-                      {isLow ? (
-                        <span className="text-red-700 dark:text-red-400 font-bold text-xs">⚠ Low Stock</span>
-                      ) : (
-                        <span className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">In Stock</span>
-                      )}
-                    </td>
-                    <td className="py-2">
-                      <button
-                        type="button"
-                        onClick={() => startEdit(product)}
-                        className="px-3 py-1 rounded-md text-xs font-bold bg-gray-900 dark:bg-emerald-600 text-white hover:bg-black dark:hover:bg-emerald-700"
-                      >
+                  <Tr key={product.id}>
+                    <Td className="font-semibold text-gray-900 dark:text-white">{product.name}</Td>
+                    <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
+                    <Td>₹{formatINR(product.wholesale_price_per_kg ?? 0)}</Td>
+                    <Td>{stock}</Td>
+                    <Td>
+                      <Badge variant={isLow ? "danger" : "success"} size="sm">
+                        {isLow ? "⚠ Low Stock" : "In Stock"}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <Button variant="primary" size="sm" onClick={() => startEdit(product)}>
                         Edit
-                      </button>
-                    </td>
-                  </tr>
+                      </Button>
+                    </Td>
+                  </Tr>
                 );
               })}
             </tbody>
-          </table>
+          </Table>
         )}
-      </div>
+      </Card>
     </main>
   );
 }
