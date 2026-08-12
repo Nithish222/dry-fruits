@@ -842,22 +842,18 @@ export default function DashboardPage() {
             <h2 className="text-sm font-bold text-ink-900 dark:text-ink-50 tracking-wide uppercase">Low Stock Alerts</h2>
           </div>
           {productsLoading ? (
-            <Table variant="comfortable">
-              <THead>
-                <Th>Product</Th>
-                <Th align="right">Stock</Th>
-                <Th align="right">Restock</Th>
-              </THead>
-              <tbody>
-                {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                  <Tr key={i}>
-                    <Td><Skeleton className="h-4 w-32" /></Td>
-                    <Td align="right"><Skeleton className="h-5 w-16 ml-auto rounded-full" /></Td>
-                    <Td align="right"><Skeleton className="h-7 w-20 ml-auto rounded-lg" /></Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
+            <div>
+              {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-4 px-6 py-4 border-b border-warmgray-100 dark:border-warmgray-700 last:border-b-0"
+                >
+                  <Skeleton className="h-6 w-16 rounded-full shrink-0" />
+                  <Skeleton className="h-4 w-32 flex-1" />
+                  <Skeleton className="h-7 w-20 rounded-lg shrink-0" />
+                </div>
+              ))}
+            </div>
           ) : lowStockProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 px-6">
               <PackageCheck className="w-8 h-8 text-sage-400 dark:text-sage-600" strokeWidth={1.5} />
@@ -865,40 +861,32 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <Table variant="comfortable">
-                <THead>
-                  <Th>Product</Th>
-                  <Th align="right">Stock</Th>
-                  <Th align="right">Restock</Th>
-                </THead>
-                <tbody>
-                  {visibleLowStockProducts.map((product) => {
-                    const { text, bg } = getLowStockSeverity(product.stock_kg);
-                    return (
-                      <Tr key={product.id}>
-                        <Td className="font-medium text-ink-900 dark:text-ink-50">{product.name}</Td>
-                        <Td align="right">
-                          <span
-                            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap"
-                            style={{ color: text, backgroundColor: bg }}
-                          >
-                            ⚠ {product.stock_kg ?? 0}kg
-                          </span>
-                        </Td>
-                        <Td align="right">
-                          <button
-                            type="button"
-                            onClick={() => setRestockProduct(product)}
-                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-clay-700 dark:text-clay-400 bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 hover:bg-clay-100 dark:hover:bg-clay-900 transition-colors"
-                          >
-                            Restock
-                          </button>
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
+              <div>
+                {visibleLowStockProducts.map((product) => {
+                  const { text, bg } = getLowStockSeverity(product.stock_kg);
+                  return (
+                    <div
+                      key={product.id}
+                      className="flex items-center gap-4 px-6 py-4 border-b border-warmgray-100 dark:border-warmgray-700 last:border-b-0"
+                    >
+                      <span
+                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap shrink-0"
+                        style={{ color: text, backgroundColor: bg }}
+                      >
+                        {(product.stock_kg ?? 0).toFixed(2)}kg
+                      </span>
+                      <span className="flex-1 font-medium text-ink-900 dark:text-ink-50 truncate">{product.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setRestockProduct(product)}
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg text-clay-700 dark:text-clay-400 bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 hover:bg-clay-100 dark:hover:bg-clay-900 transition-colors shrink-0"
+                      >
+                        Restock
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
               {hiddenLowStockCount > 0 && (
                 <Link
                   href="/admin?filter=low-stock"
