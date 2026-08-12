@@ -54,6 +54,22 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // Itemized supplier purchase receipts (Receive Stock feature) - the
+    // full per-item detail of a physical delivery, mirroring
+    // transactions/{id}'s role as the POS sale's detailed record (see
+    // receiveStockWithVoucher in src/lib/purchases.js). Same access model
+    // as everything else - no role infra exists to tighten this further.
+    match /purchases/{purchaseId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Itemized supplier returns (Debit Note feature) - the return-side
+    // mirror of purchases/{id} above, see returnStockToSupplierWithVoucher
+    // in src/lib/purchases.js. Same access model as everything else.
+    match /purchaseReturns/{purchaseReturnId} {
+      allow read, write: if request.auth != null;
+    }
+
     // Chart of Accounts (Tally Phase 4 - double-entry engine, additive to
     // the Khata system above, see src/lib/accounting.js). Groups and
     // Ledgers share one flat collection. Structural fields become
