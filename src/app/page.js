@@ -2,11 +2,15 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/components/AuthProvider";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
 import { formatINR, roundKg, roundRs, LOW_STOCK_THRESHOLD_KG, CREDIT_LIMIT_WARNING_THRESHOLD } from "@/lib/format";
 import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
+import { readVoucherPostContext, writeVoucherPost } from "@/lib/accounting";
+import { buildSalesVoucherLines } from "@/lib/khataVouchers";
+import { getSystemAccounts } from "@/lib/systemAccounts";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
@@ -25,6 +29,9 @@ async function commitTransactionToFirestore(payload) {
   const transactionRef = doc(collection(db, "transactions"));
   // Only created/written when this sale has a credit component - see below.
   const creditEntryRef = doc(collection(db, "customers", payload.customer.phoneNumber, "entries"));
+  // Plain reference-data read, outside the transaction - same pattern
+  // VoucherForm.js already uses for its account picker.
+  const systemAccounts = await getSystemAccounts();
 
   await runTransaction(db, async (transaction) => {
     const productUpdates = [];
@@ -56,6 +63,12 @@ async function commitTransactionToFirestore(payload) {
     // rather than FieldValue.increment(), matching how stock is already
     // derived above - one write per doc per transaction, no ambiguity.
     const creditAmount = roundRs(payload.payment?.creditAmount || 0);
+
+    // Reads only, still - same rule the rest of this transaction already
+    // follows (every read before any write).
+    const voucherDate = payload.createdAt.slice(0, 10);
+    const voucherLines = buildSalesVoucherLines({ payment: payload.payment, grandTotal: payload.grandTotal, systemAccounts });
+    const voucherContext = await readVoucherPostContext(transaction, { lines: voucherLines, voucherType: "sales", date: voucherDate });
 
     if (!customerDoc.exists()) {
       transaction.set(customerRef, {
@@ -106,12 +119,22 @@ async function commitTransactionToFirestore(payload) {
     for (const update of productUpdates) {
       transaction.update(update.ref, { stock_kg: update.newStock });
     }
+
+    writeVoucherPost(transaction, {
+      lines: voucherLines,
+      voucherType: "sales",
+      date: voucherDate,
+      narration: `Sale to ${payload.customer.name} (${payload.customer.phoneNumber})`,
+      createdBy: payload.createdBy,
+      context: voucherContext,
+    });
   });
 
   return transactionRef;
 }
 
 export default function Home() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -156,6 +179,15 @@ export default function Home() {
       }
     );
     return () => unsubscribe();
+  }, []);
+
+  // Non-blocking - warms systemAccounts.js's cache so the first checkout of
+  // the day doesn't pay the extra round-trip, and so a missing/renamed
+  // system ledger surfaces here (console) before a cashier is mid-sale. A
+  // real checkout attempt still surfaces the error via handleCheckout's own
+  // catch if this never resolves.
+  useEffect(() => {
+    getSystemAccounts().catch((error) => console.error("System accounts not ready: ", error));
   }, []);
 
   // Flush any offline-queued sales to Firestore, one at a time, stopping the
@@ -368,6 +400,7 @@ export default function Home() {
       grandTotal: cartTotal,
       payment,
       createdAt: now.toISOString(),
+      createdBy: { uid: user?.uid || null, email: user?.email || null },
     };
 
     const buildReceipt = (id) => ({

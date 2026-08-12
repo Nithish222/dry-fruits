@@ -101,6 +101,10 @@ export default function LedgerStatement({
       )}
 
       <style>{`
+        @page {
+          size: A4;
+          margin: 16mm;
+        }
         @media print {
           body * {
             visibility: hidden;

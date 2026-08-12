@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
-import { formatINR, roundKg, computeProfit } from "@/lib/format";
+import { formatINR, roundKg, roundRs, computeProfit } from "@/lib/format";
+import { readVoucherPostContext, writeVoucherPost } from "@/lib/accounting";
+import { buildReturnVoucherLines } from "@/lib/khataVouchers";
+import { getSystemAccounts } from "@/lib/systemAccounts";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
 import ReturnModal from "@/components/ReturnModal";
 import PageHeader from "@/components/ui/PageHeader";
@@ -31,6 +34,14 @@ async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, r
   const returnRef = doc(collection(db, "returns"));
   const originalTransactionRef = doc(db, "transactions", originalTransactionId);
   const summaryRef = doc(db, "returnSummaries", originalTransactionId);
+  const systemAccounts = await getSystemAccounts();
+  // Assigned inside the transaction (same pattern as postVoucher/
+  // cancelVoucher capturing voucherNumber outside their own transactions)
+  // so the caller - and ultimately the cashier, via ReturnModal - knows
+  // exactly how much of the refund reduced Udhaar vs. needs to physically
+  // leave the till.
+  let creditReduction = 0;
+  let cashOrGpayRefund = 0;
 
   await runTransaction(db, async (transaction) => {
     const originalDoc = await transaction.get(originalTransactionRef);
@@ -39,7 +50,10 @@ async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, r
     }
     const summaryDoc = await transaction.get(summaryRef);
     const alreadyReturned = summaryDoc.exists() ? summaryDoc.data().returnedByItem || {} : {};
+    const creditAlreadyReversed = summaryDoc.exists() ? summaryDoc.data().creditReversed || 0 : 0;
     const originalItems = originalDoc.data().items || [];
+    const originalPayment = originalDoc.data().payment || {};
+    const originalCustomer = originalDoc.data().customer || {};
 
     const productUpdates = [];
     const returnItems = [];
@@ -85,22 +99,79 @@ async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, r
       throw new Error("Select at least one item to return.");
     }
 
+    // Credit-first refund split (Phase 6): a return against a transaction
+    // that had a credit component reduces the customer's Udhaar before any
+    // cash/GPay leaves the till, bounded by however much of THAT sale's
+    // credit hasn't already been reversed by an earlier partial return
+    // (creditReversed, tracked cumulatively on returnSummaries alongside
+    // the existing returnedByItem map). Still read-phase only below - no
+    // writes yet.
+    const roundedRefund = roundRs(refundAmount);
+    const originalCreditAmount = roundRs(originalPayment.creditAmount || 0);
+    const creditRemaining = roundRs(Math.max(originalCreditAmount - creditAlreadyReversed, 0));
+    creditReduction = roundRs(Math.min(roundedRefund, creditRemaining));
+    cashOrGpayRefund = roundRs(roundedRefund - creditReduction);
+    const newCreditReversed = roundRs(creditAlreadyReversed + creditReduction);
+
+    let customerRef = null;
+    let customerDoc = null;
+    if (creditReduction > 0) {
+      customerRef = doc(db, "customers", originalCustomer.phoneNumber);
+      customerDoc = await transaction.get(customerRef);
+      if (!customerDoc.exists()) {
+        throw new Error("Customer record not found - cannot reverse credit.");
+      }
+    }
+
+    const voucherLines = buildReturnVoucherLines({
+      refundAmount: roundedRefund,
+      creditReduction,
+      cashOrGpayRefund,
+      originalPaymentMode: originalPayment.mode,
+      systemAccounts,
+    });
+    const voucherDate = new Date().toISOString().slice(0, 10);
+    const voucherContext = await readVoucherPostContext(transaction, { lines: voucherLines, voucherType: "journal", date: voucherDate });
+
+    // ---- writes from here - every read above (existing + new) is done ----
     transaction.set(returnRef, {
       originalTransactionId,
       items: returnItems,
-      refundAmount: Math.round(refundAmount * 100) / 100,
+      refundAmount: roundedRefund,
       reason,
       createdAt: serverTimestamp(),
       processedBy,
     });
-    transaction.set(summaryRef, { returnedByItem: newReturnedByItem }, { merge: true });
+    transaction.set(summaryRef, { returnedByItem: newReturnedByItem, creditReversed: newCreditReversed }, { merge: true });
 
     for (const update of productUpdates) {
       transaction.update(update.ref, { stock_kg: update.newStock });
     }
+
+    if (creditReduction > 0) {
+      const currentBalance = customerDoc.data().balance || 0;
+      transaction.set(customerRef, { balance: roundRs(currentBalance - creditReduction) }, { merge: true });
+      const creditEntryRef = doc(collection(db, "customers", customerRef.id, "entries"));
+      transaction.set(creditEntryRef, {
+        type: "credit",
+        amount: creditReduction,
+        note: `Return refund against ${originalTransactionId}`,
+        sourceReturnId: returnRef.id,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    writeVoucherPost(transaction, {
+      lines: voucherLines,
+      voucherType: "journal",
+      date: voucherDate,
+      narration: `Return against ${originalTransactionId}`,
+      createdBy: processedBy,
+      context: voucherContext,
+    });
   });
 
-  return returnRef;
+  return { returnRef, creditReduction, cashOrGpayRefund };
 }
 
 // A sale is "fully" returned once every item's returned weight reaches its
@@ -241,7 +312,7 @@ export default function TransactionsPage() {
   };
 
   const handleProcessReturn = async ({ originalTransactionId, itemsToReturn, reason }) => {
-    await commitReturnToFirestore({
+    return commitReturnToFirestore({
       originalTransactionId,
       itemsToReturn,
       reason,
