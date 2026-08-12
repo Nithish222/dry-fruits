@@ -27,3 +27,30 @@ export function computeMargin(retailPrice, costPrice) {
   const marginPct = retailPrice > 0 ? (marginRs / retailPrice) * 100 : null;
   return { marginRs, marginPct };
 }
+
+// Sums revenue-minus-cost profit across a set of documents that each carry
+// an `items` array (transactions and returns share that shape, so this
+// works for both - a return's profit, subtracted from a sale's, is how
+// callers net a refunded item back out of the day's margin). Items without
+// a costPriceAtSale snapshot (sold before cost tracking existed, or the
+// product never had a cost price set) are treated as ₹0 cost rather than
+// dropped, so revenue is still counted - missingCostCount says how many
+// items took that fallback, so callers can flag the total as an
+// overestimate instead of presenting it as exact.
+export function computeProfit(docs) {
+  let profit = 0;
+  let missingCostCount = 0;
+  for (const doc of docs) {
+    for (const item of doc.items || []) {
+      const weight = item.weight_kg || 0;
+      const revenue = item.subtotal ?? (item.billedPrice || 0) * weight;
+      if (item.costPriceAtSale != null && Number.isFinite(item.costPriceAtSale)) {
+        profit += revenue - item.costPriceAtSale * weight;
+      } else {
+        profit += revenue;
+        missingCostCount += 1;
+      }
+    }
+  }
+  return { profit, missingCostCount };
+}

@@ -1,24 +1,132 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { formatINR } from "@/lib/format";
+import { useAuth } from "@/components/AuthProvider";
+import { formatINR, roundKg, computeProfit } from "@/lib/format";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
+import ReturnModal from "@/components/ReturnModal";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
+import { RotateCcw } from "@/components/ui/icons";
 
 const SKELETON_ROWS = 6;
 
+// Runs the stock-restoring, atomic Firestore write for a return. Mirrors
+// commitTransactionToFirestore's stock-check pattern (src/app/page.js): item
+// weights/prices are read fresh from the original transaction and product
+// docs inside the transaction rather than trusted from the client. A
+// returnSummaries doc - separate from the original transaction, which is
+// never edited - tracks cumulative returned quantity per item so two
+// concurrent returns (e.g. two tabs) can't refund more than was sold; a
+// Firestore transaction can only re-read documents by reference, not run a
+// query, so per-item running totals can't be derived from the `returns`
+// collection atomically without it.
+async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, reason, processedBy }) {
+  const returnRef = doc(collection(db, "returns"));
+  const originalTransactionRef = doc(db, "transactions", originalTransactionId);
+  const summaryRef = doc(db, "returnSummaries", originalTransactionId);
+
+  await runTransaction(db, async (transaction) => {
+    const originalDoc = await transaction.get(originalTransactionRef);
+    if (!originalDoc.exists()) {
+      throw new Error("Original transaction not found.");
+    }
+    const summaryDoc = await transaction.get(summaryRef);
+    const alreadyReturned = summaryDoc.exists() ? summaryDoc.data().returnedByItem || {} : {};
+    const originalItems = originalDoc.data().items || [];
+
+    const productUpdates = [];
+    const returnItems = [];
+    const newReturnedByItem = { ...alreadyReturned };
+    let refundAmount = 0;
+
+    for (const request of itemsToReturn) {
+      const originalItem = originalItems.find((item) => item.id === request.id);
+      if (!originalItem) {
+        throw new Error(`Item ${request.id} was not part of the original sale.`);
+      }
+      if (request.weight_kg <= 0) {
+        throw new Error(`Return weight for ${originalItem.name} must be positive.`);
+      }
+      const remaining = roundKg(originalItem.weight_kg - (alreadyReturned[request.id] || 0));
+      if (request.weight_kg > remaining) {
+        throw new Error(`Cannot return ${request.weight_kg}kg of ${originalItem.name}. Only ${remaining}kg remaining.`);
+      }
+
+      // Product may have been deleted since the sale - still record the
+      // refund, just skip restoring stock for that item.
+      const productRef = doc(db, "products", request.id);
+      const productDoc = await transaction.get(productRef);
+      if (productDoc.exists()) {
+        productUpdates.push({ ref: productRef, newStock: roundKg(productDoc.data().stock_kg + request.weight_kg) });
+      }
+
+      const subtotal = Math.round(originalItem.billedPrice * request.weight_kg * 100) / 100;
+      refundAmount += subtotal;
+      newReturnedByItem[request.id] = roundKg((alreadyReturned[request.id] || 0) + request.weight_kg);
+
+      returnItems.push({
+        id: originalItem.id,
+        name: originalItem.name,
+        weight_kg: request.weight_kg,
+        billedPrice: originalItem.billedPrice,
+        subtotal,
+        costPriceAtSale: originalItem.costPriceAtSale ?? null,
+      });
+    }
+
+    if (returnItems.length === 0) {
+      throw new Error("Select at least one item to return.");
+    }
+
+    transaction.set(returnRef, {
+      originalTransactionId,
+      items: returnItems,
+      refundAmount: Math.round(refundAmount * 100) / 100,
+      reason,
+      createdAt: serverTimestamp(),
+      processedBy,
+    });
+    transaction.set(summaryRef, { returnedByItem: newReturnedByItem }, { merge: true });
+
+    for (const update of productUpdates) {
+      transaction.update(update.ref, { stock_kg: update.newStock });
+    }
+  });
+
+  return returnRef;
+}
+
+// A sale is "fully" returned once every item's returned weight reaches its
+// sold weight; "partially" once anything has come back but not everything.
+function getReturnStatus(tx, returnInfo) {
+  if (!returnInfo) return null;
+  const items = tx.items || [];
+  const totalSold = items.reduce((sum, item) => sum + (item.weight_kg || 0), 0);
+  const totalReturned = items.reduce(
+    (sum, item) => sum + Math.min(returnInfo.itemsReturned[item.id] || 0, item.weight_kg || 0),
+    0
+  );
+  if (totalReturned <= 0) return null;
+  return totalReturned >= totalSold - 0.0005 ? "full" : "partial";
+}
+
 export default function TransactionsPage() {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState([]);
+  const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [lookupCustomer, setLookupCustomer] = useState(null);
   const [showCustomerLookup, setShowCustomerLookup] = useState(false);
+  const [returnTransaction, setReturnTransaction] = useState(null);
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
 
   // Real-time listener instead of a one-shot fetch: Firestore serves the
   // cached snapshot instantly on (re)subscribe, so switching tabs and back
@@ -44,6 +152,47 @@ export default function TransactionsPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "returns"),
+      (querySnapshot) => {
+        setReturns(querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        console.error("Error fetching returns: ", error);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+    }
+    function handleOffline() {
+      setIsOnline(false);
+    }
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const returnsByTransaction = useMemo(() => {
+    const map = {};
+    for (const ret of returns) {
+      const key = ret.originalTransactionId;
+      if (!map[key]) map[key] = { refundAmount: 0, itemsReturned: {} };
+      map[key].refundAmount += ret.refundAmount || 0;
+      for (const item of ret.items || []) {
+        map[key].itemsReturned[item.id] = roundKg((map[key].itemsReturned[item.id] || 0) + (item.weight_kg || 0));
+      }
+    }
+    return map;
+  }, [returns]);
+
   const filteredTransactions = transactions.filter((tx) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -59,34 +208,27 @@ export default function TransactionsPage() {
     startOfToday.setHours(0, 0, 0, 0);
     const startSeconds = startOfToday.getTime() / 1000;
     const todays = transactions.filter((tx) => (tx.createdAt?.seconds || 0) >= startSeconds);
+    const todaysReturns = returns.filter((ret) => (ret.createdAt?.seconds || 0) >= startSeconds);
 
     // Items without a costPriceAtSale snapshot (sold before this feature
     // existed, or the product never had a cost price set) are treated as
     // ₹0 cost rather than dropped, so the profit figure still includes
     // their revenue - missingCostCount surfaces that the total is an
     // overestimate rather than silently presenting it as exact.
-    let profit = 0;
-    let missingCostCount = 0;
-    for (const tx of todays) {
-      for (const item of tx.items || []) {
-        const weight = item.weight_kg || 0;
-        const revenue = item.subtotal ?? (item.billedPrice || 0) * weight;
-        if (item.costPriceAtSale != null && Number.isFinite(item.costPriceAtSale)) {
-          profit += revenue - item.costPriceAtSale * weight;
-        } else {
-          profit += revenue;
-          missingCostCount += 1;
-        }
-      }
-    }
+    const sales = computeProfit(todays);
+
+    // Returns are netted out by the day they were *processed*, not the day
+    // of the original sale - the refund actually leaves the till today.
+    const returnedRevenue = todaysReturns.reduce((sum, ret) => sum + (ret.refundAmount || 0), 0);
+    const returned = computeProfit(todaysReturns);
 
     return {
       count: todays.length,
-      revenue: todays.reduce((sum, tx) => sum + (tx.grandTotal || 0), 0),
-      profit,
-      missingCostCount,
+      revenue: todays.reduce((sum, tx) => sum + (tx.grandTotal || 0), 0) - returnedRevenue,
+      profit: sales.profit - returned.profit,
+      missingCostCount: sales.missingCostCount,
     };
-  }, [transactions]);
+  }, [transactions, returns]);
 
   const openCustomerLookup = (customer) => {
     if (!customer?.phoneNumber) return;
@@ -98,9 +240,29 @@ export default function TransactionsPage() {
     setShowCustomerLookup(true);
   };
 
+  const handleProcessReturn = async ({ originalTransactionId, itemsToReturn, reason }) => {
+    await commitReturnToFirestore({
+      originalTransactionId,
+      itemsToReturn,
+      reason,
+      processedBy: { uid: user?.uid || null, email: user?.email || null },
+    });
+  };
+
   return (
     <main className="p-6 md:p-8 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors duration-300">
-      <PageHeader title="Sales History" subtitle="Review all completed transactions" className="flex-shrink-0" />
+      <PageHeader
+        title="Sales History"
+        subtitle="Review all completed transactions"
+        className="flex-shrink-0"
+        actions={
+          !isOnline && (
+            <Badge variant="neutral" dot>
+              Offline - returns unavailable
+            </Badge>
+          )
+        }
+      />
 
       <div className="mb-4 flex-shrink-0 grid grid-cols-3 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
@@ -141,6 +303,8 @@ export default function TransactionsPage() {
             <Th>Total Items</Th>
             <Th>Price Mode</Th>
             <Th align="right">Total Amount</Th>
+            <Th>Status</Th>
+            <Th align="right">Actions</Th>
           </THead>
           <tbody>
             {loading ? (
@@ -151,44 +315,69 @@ export default function TransactionsPage() {
                   <Td><Skeleton className="h-4 w-10" /></Td>
                   <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
                   <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
+                  <Td><Skeleton className="h-5 w-20 rounded-full" /></Td>
+                  <Td align="right"><Skeleton className="h-8 w-20 ml-auto rounded-lg" /></Td>
                 </Tr>
               ))
             ) : filteredTransactions.length === 0 ? (
               <tr>
-                <td colSpan="5" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
+                <td colSpan="7" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
                   {searchQuery ? "No matching transactions found." : "No transactions found."}
                 </td>
               </tr>
             ) : (
-              filteredTransactions.map((tx) => (
-                <Tr key={tx.id}>
-                  <Td className="font-medium text-ink-900 dark:text-ink-50">
-                    {tx.createdAt ? new Date(tx.createdAt.seconds * 1000).toLocaleString() : "N/A"}
-                  </Td>
-                  <Td>
-                    {tx.customer?.phoneNumber ? (
-                      <button
-                        onClick={() => openCustomerLookup(tx.customer)}
-                        className="text-left hover:underline"
+              filteredTransactions.map((tx) => {
+                const returnInfo = returnsByTransaction[tx.id];
+                const returnStatus = getReturnStatus(tx, returnInfo);
+                return (
+                  <Tr key={tx.id}>
+                    <Td className="font-medium text-ink-900 dark:text-ink-50">
+                      {tx.createdAt ? new Date(tx.createdAt.seconds * 1000).toLocaleString() : "N/A"}
+                    </Td>
+                    <Td>
+                      {tx.customer?.phoneNumber ? (
+                        <button
+                          onClick={() => openCustomerLookup(tx.customer)}
+                          className="text-left hover:underline"
+                        >
+                          <p className="font-medium text-ink-900 dark:text-ink-50">{tx.customer?.name || "N/A"}</p>
+                          <p className="text-xs text-warmgray-400">{tx.customer?.phoneNumber}</p>
+                        </button>
+                      ) : (
+                        <p className="font-medium text-ink-900 dark:text-ink-50">N/A</p>
+                      )}
+                    </Td>
+                    <Td>{tx.items.length}</Td>
+                    <Td>
+                      <Badge variant={tx.priceType === "retail" ? "success" : "info"} size="sm">
+                        {tx.priceType}
+                      </Badge>
+                    </Td>
+                    <Td align="right" className="font-bold text-ink-900 dark:text-ink-50">
+                      ₹{formatINR(tx.grandTotal)}
+                    </Td>
+                    <Td>
+                      {returnStatus === "full" && (
+                        <Badge variant="danger" size="sm">Fully Returned</Badge>
+                      )}
+                      {returnStatus === "partial" && (
+                        <Badge variant="warning" size="sm">Partially Returned</Badge>
+                      )}
+                    </Td>
+                    <Td align="right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setReturnTransaction(tx)}
+                        disabled={returnStatus === "full"}
                       >
-                        <p className="font-medium text-ink-900 dark:text-ink-50">{tx.customer?.name || "N/A"}</p>
-                        <p className="text-xs text-warmgray-400">{tx.customer?.phoneNumber}</p>
-                      </button>
-                    ) : (
-                      <p className="font-medium text-ink-900 dark:text-ink-50">N/A</p>
-                    )}
-                  </Td>
-                  <Td>{tx.items.length}</Td>
-                  <Td>
-                    <Badge variant={tx.priceType === "retail" ? "success" : "info"} size="sm">
-                      {tx.priceType}
-                    </Badge>
-                  </Td>
-                  <Td align="right" className="font-bold text-ink-900 dark:text-ink-50">
-                    ₹{formatINR(tx.grandTotal)}
-                  </Td>
-                </Tr>
-              ))
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Return
+                      </Button>
+                    </Td>
+                  </Tr>
+                );
+              })
             )}
           </tbody>
         </Table>
@@ -199,6 +388,16 @@ export default function TransactionsPage() {
         isOpen={showCustomerLookup}
         initialCustomer={lookupCustomer}
         onClose={() => setShowCustomerLookup(false)}
+      />
+
+      <ReturnModal
+        key={returnTransaction?.id || "none"}
+        isOpen={!!returnTransaction}
+        transaction={returnTransaction}
+        returnedByItem={returnTransaction ? returnsByTransaction[returnTransaction.id]?.itemsReturned || {} : {}}
+        isOnline={isOnline}
+        onClose={() => setReturnTransaction(null)}
+        onProcessReturn={handleProcessReturn}
       />
     </main>
   );
