@@ -2,6 +2,19 @@
 // (Low Stock / In Stock badge) so both surfaces agree on the same cutoff.
 export const LOW_STOCK_THRESHOLD_KG = 5;
 
+// Shared between the Register checkout (credit-sale confirm dialog) and
+// PaymentModal (projected-balance display) so a credit sale that would push
+// a customer's balance past this is flagged before it's committed. One
+// global placeholder, not a per-customer setting yet - adjust freely.
+export const CREDIT_LIMIT_WARNING_THRESHOLD = 5000;
+
+// Rounds to paise precision so repeated addition/subtraction (a running
+// customer balance, credit amounts split off a total) doesn't accumulate
+// floating-point noise the way unrounded rupee math does.
+export function roundRs(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
 export function formatINR(value) {
   return Number(value || 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,

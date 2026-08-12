@@ -5,7 +5,7 @@ import { db } from "@/lib/firebase";
 import ReceiptModal from "@/components/ReceiptModal";
 import PaymentModal from "@/components/PaymentModal";
 import CustomerLookupModal from "@/components/CustomerLookupModal";
-import { formatINR, roundKg, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
+import { formatINR, roundKg, roundRs, LOW_STOCK_THRESHOLD_KG, CREDIT_LIMIT_WARNING_THRESHOLD } from "@/lib/format";
 import { getPendingTransactions, isOfflineError, queueTransaction, removePendingTransaction } from "@/lib/offlineQueue";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
@@ -23,6 +23,8 @@ const CATALOG_SKELETON_TILES = 8;
 // queued sale is validated against current stock exactly like a live one.
 async function commitTransactionToFirestore(payload) {
   const transactionRef = doc(collection(db, "transactions"));
+  // Only created/written when this sale has a credit component - see below.
+  const creditEntryRef = doc(collection(db, "customers", payload.customer.phoneNumber, "entries"));
 
   await runTransaction(db, async (transaction) => {
     const productUpdates = [];
@@ -50,11 +52,32 @@ async function commitTransactionToFirestore(payload) {
 
     const customerRef = doc(db, "customers", payload.customer.phoneNumber);
     const customerDoc = await transaction.get(customerRef);
+    // Positive = customer owes the shop. Computed from this same read
+    // rather than FieldValue.increment(), matching how stock is already
+    // derived above - one write per doc per transaction, no ambiguity.
+    const creditAmount = roundRs(payload.payment?.creditAmount || 0);
 
     if (!customerDoc.exists()) {
       transaction.set(customerRef, {
         name: payload.customer.name,
         phoneNumber: payload.customer.phoneNumber,
+        createdAt: serverTimestamp(),
+        balance: creditAmount,
+      });
+    } else if (creditAmount > 0) {
+      const currentBalance = customerDoc.data().balance || 0;
+      transaction.update(customerRef, { balance: roundRs(currentBalance + creditAmount) });
+    }
+
+    if (creditAmount > 0) {
+      // A credit sale's debit entry - linked back to the sale via
+      // sourceTxnId, never editing the transaction doc itself (same
+      // never-mutate-the-original principle as the returns feature).
+      transaction.set(creditEntryRef, {
+        type: "debit",
+        amount: creditAmount,
+        note: "Credit sale",
+        sourceTxnId: transactionRef.id,
         createdAt: serverTimestamp(),
       });
     }
@@ -299,6 +322,12 @@ export default function Home() {
 
   const cartTotal = cart.reduce((total, item) => total + item.billedPrice * (item.weight_kg || 0), 0);
 
+  // Best-effort - drawn from the same client-side customer list the
+  // suggestion dropdown already loads, so it can be a snapshot behind a
+  // just-recorded payment elsewhere. Fine for a warning, not a hard limit.
+  const currentCustomerBalance =
+    allCustomers?.find((c) => c.phoneNumber === customerPhoneNumber)?.balance || 0;
+
   const openPaymentModal = () => {
     if (cart.length === 0 || cartTotal <= 0) {
       alert("Cart is empty.");
@@ -313,6 +342,19 @@ export default function Home() {
   };
 
   const handleCheckout = async (payment) => {
+    if (payment.creditAmount > 0) {
+      const projectedBalance = roundRs(currentCustomerBalance + payment.creditAmount);
+      if (projectedBalance > CREDIT_LIMIT_WARNING_THRESHOLD) {
+        // A warning, not a hard block - declining leaves the payment modal
+        // open (checkout hasn't been touched yet) so the cashier can adjust
+        // the amount instead of losing the whole cart.
+        const proceed = window.confirm(
+          `This will put ${customerName || "this customer"} at ₹${formatINR(projectedBalance)} owed, above the usual ₹${formatINR(CREDIT_LIMIT_WARNING_THRESHOLD)} limit. Continue?`
+        );
+        if (!proceed) return;
+      }
+    }
+
     setShowPaymentModal(false);
 
     const now = new Date();
@@ -595,10 +637,17 @@ export default function Home() {
                           setSelectedCustomer(customer);
                           setShowCustomerSuggestions(false); // Hide suggestions after selection
                         }}
-                        className="px-4 py-2 cursor-pointer hover:bg-warmgray-100 dark:hover:bg-warmgray-700 flex justify-between items-center"
+                        className="px-4 py-2 cursor-pointer hover:bg-warmgray-100 dark:hover:bg-warmgray-700 flex justify-between items-center gap-2"
                       >
-                        <span className="font-medium text-ink-900 dark:text-ink-50">{customer.name}</span>
-                        <span className="text-warmgray-500 dark:text-warmgray-400 text-sm">{customer.phoneNumber}</span>
+                        <div className="min-w-0">
+                          <span className="font-medium text-ink-900 dark:text-ink-50 block truncate">{customer.name}</span>
+                          <span className="text-warmgray-500 dark:text-warmgray-400 text-sm">{customer.phoneNumber}</span>
+                        </div>
+                        {customer.balance > 0 && (
+                          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border bg-rust-100 dark:bg-rust-950 border-rust-200 dark:border-rust-700 text-rust-700 dark:text-rust-300">
+                            ₹{formatINR(customer.balance)} owed
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -636,6 +685,7 @@ export default function Home() {
       <PaymentModal
         isOpen={showPaymentModal}
         total={cartTotal}
+        customerBalance={currentCustomerBalance}
         onClose={() => setShowPaymentModal(false)}
         onConfirm={handleCheckout}
       />

@@ -6,12 +6,14 @@ import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
-import { Menu, ShoppingCart, Tag, Receipt, Sun, Moon, LogOut, Leaf } from "@/components/ui/icons";
+import { Menu, ShoppingCart, Tag, Receipt, Sun, Moon, LogOut, Leaf, LayoutDashboard, Wallet } from "@/components/ui/icons";
 
 const NAV_ITEMS = [
   { name: "Register", path: "/", icon: ShoppingCart },
+  { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { name: "Price Setup", path: "/admin", icon: Tag },
   { name: "Transactions", path: "/transactions", icon: Receipt },
+  { name: "Tally", path: "/tally", icon: Wallet },
 ];
 
 export default function Sidebar() {
