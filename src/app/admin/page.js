@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
+import EditProductModal from "@/components/EditProductModal";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -15,7 +16,6 @@ import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
 const SKELETON_ROWS = 3;
 const EMPTY_ADD_FORM = { name: "", category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
-const EMPTY_EDIT_FORM = { category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
 
 export default function AdminPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -26,11 +26,17 @@ export default function AdminPage() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  // Lazy-initialized from the URL (deep-linked from the Dashboard's Low
+  // Stock Alerts "View all" link, /admin?filter=low-stock) rather than set
+  // in an effect - this route is statically prerendered, so the static
+  // shell never reflects a runtime query string either way (the same
+  // "shell first, real content a moment later" pattern this page already
+  // has for its Firestore data below).
+  const [lowStockOnly, setLowStockOnly] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("filter") === "low-stock"
+  );
 
   const [editingProduct, setEditingProduct] = useState(null);
-  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM);
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [editError, setEditError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -67,73 +73,8 @@ export default function AdminPage() {
     return () => unsubscribe();
   }, []);
 
-  const openEditModal = (product) => {
-    setEditingProduct(product);
-    setEditError("");
-    setEditForm({
-      category: product.category || "",
-      retailPrice: String(product.retail_price_per_kg ?? 0),
-      wholesalePrice: String(product.wholesale_price_per_kg ?? 0),
-      // Blank (not "0") when unset - a genuine ₹0 cost and "cost not entered
-      // yet" are different things and shouldn't look the same in the form.
-      costPrice: product.cost_price_per_kg != null ? String(product.cost_price_per_kg) : "",
-      stockValue: String(product.stock_kg ?? 0),
-    });
-  };
-
-  const closeEditModal = () => {
-    setEditingProduct(null);
-    setEditForm(EMPTY_EDIT_FORM);
-    setEditError("");
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingProduct) return;
-    const category = editForm.category.trim();
-    const retailPrice = Number(editForm.retailPrice);
-    const wholesalePrice = Number(editForm.wholesalePrice);
-    const stockValue = Number(editForm.stockValue);
-    const costPriceInput = editForm.costPrice.trim();
-    const costPrice = costPriceInput === "" ? null : Number(costPriceInput);
-
-    if (!Number.isFinite(retailPrice) || retailPrice < 0) {
-      setEditError("Retail price must be a non-negative number.");
-      return;
-    }
-    if (!Number.isFinite(wholesalePrice) || wholesalePrice < 0) {
-      setEditError("Wholesale price must be a non-negative number.");
-      return;
-    }
-    if (costPrice !== null && (!Number.isFinite(costPrice) || costPrice < 0)) {
-      setEditError("Cost price must be a non-negative number, or left blank.");
-      return;
-    }
-    if (!Number.isFinite(stockValue) || stockValue < 0) {
-      setEditError("Stock must be a non-negative number.");
-      return;
-    }
-
-    setSavingEdit(true);
-    setEditError("");
-    try {
-      await updateDoc(doc(db, "products", editingProduct.id), {
-        category,
-        retail_price_per_kg: retailPrice,
-        wholesale_price_per_kg: wholesalePrice,
-        cost_price_per_kg: costPrice,
-        // Round to gram precision before writing so this edit doesn't
-        // introduce (or perpetuate) floating-point drift in stock_kg.
-        stock_kg: roundKg(stockValue),
-        last_updated: serverTimestamp(),
-      });
-      closeEditModal();
-    } catch (error) {
-      console.error("Failed to update product: ", error);
-      setEditError("Save failed. Please try again.");
-    } finally {
-      setSavingEdit(false);
-    }
-  };
+  const openEditModal = (product) => setEditingProduct(product);
+  const closeEditModal = () => setEditingProduct(null);
 
   const openAddModal = () => {
     setAddForm(EMPTY_ADD_FORM);
@@ -288,12 +229,9 @@ export default function AdminPage() {
   const filteredProducts = products.filter((p) => {
     const matchesSearch = (p.name || "").toLowerCase().includes(searchQuery.trim().toLowerCase());
     const matchesCategory = !categoryFilter || (p.category || "").trim() === categoryFilter;
-    return matchesSearch && matchesCategory;
+    const matchesLowStock = !lowStockOnly || (p.stock_kg ?? 0) < LOW_STOCK_THRESHOLD_KG;
+    return matchesSearch && matchesCategory && matchesLowStock;
   });
-
-  const editCostPriceInput = editForm.costPrice.trim();
-  const editCostPrice = editCostPriceInput === "" ? null : Number(editCostPriceInput);
-  const editMargin = computeMargin(Number(editForm.retailPrice), editCostPrice);
 
   return (
     <main className="p-8 md:p-12 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors">
@@ -316,7 +254,16 @@ export default function AdminPage() {
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-shrink-0">
             <h2 className="text-2xl font-black text-ink-900 dark:text-ink-50 mb-1">Inventory</h2>
-            <p className="text-warmgray-500 dark:text-warmgray-400 font-medium text-sm">Stock and price levels for all products. Click a row to edit it.</p>
+            <p className="text-warmgray-500 dark:text-warmgray-400 font-medium text-sm mb-2">Stock and price levels for all products. Click a row to edit it.</p>
+            {lowStockOnly && (
+              <button
+                type="button"
+                onClick={() => setLowStockOnly(false)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-rust-100 dark:bg-rust-950/50 text-rust-700 dark:text-rust-400 hover:bg-rust-200 dark:hover:bg-rust-900 transition-colors"
+              >
+                Filtered: Low Stock ✕
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
@@ -552,103 +499,13 @@ export default function AdminPage() {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={!!editingProduct}
+      <EditProductModal
+        key={editingProduct?.id || "none"}
+        product={editingProduct}
         onClose={closeEditModal}
-        title={editingProduct?.name || ""}
-        panelClassName="max-w-md"
-        headerActions={
-          editingProduct && (
-            <button
-              type="button"
-              onClick={() => handleDeleteProduct(editingProduct)}
-              disabled={deletingId === editingProduct.id}
-              aria-label={`Delete ${editingProduct.name}`}
-              className="p-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )
-        }
-        footer={
-          <div className="flex gap-3">
-            <Button variant="secondary" size="md" className="flex-1" onClick={closeEditModal} disabled={savingEdit}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="md" className="flex-1" onClick={handleSaveEdit} disabled={savingEdit}>
-              {savingEdit ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        }
-      >
-        <div className="p-5 space-y-4">
-          <Input
-            label="Category"
-            className="w-full"
-            value={editForm.category}
-            onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-            placeholder="e.g. Cashews"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Retail ₹/kg"
-              type="number"
-              min="0"
-              step="0.01"
-              className="w-full"
-              value={editForm.retailPrice}
-              onChange={(e) => setEditForm({ ...editForm, retailPrice: e.target.value })}
-            />
-            <Input
-              label="Wholesale ₹/kg"
-              type="number"
-              min="0"
-              step="0.01"
-              className="w-full"
-              value={editForm.wholesalePrice}
-              onChange={(e) => setEditForm({ ...editForm, wholesalePrice: e.target.value })}
-            />
-          </div>
-          <Input
-            label="Cost ₹/kg (optional)"
-            type="number"
-            min="0"
-            step="0.01"
-            className="w-full"
-            value={editForm.costPrice}
-            onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
-            placeholder="Leave blank if unknown"
-          />
-
-          {/* Read-only, always derived from Retail/Cost above - never a
-              directly-editable field, so it can't drift out of sync. Given
-              a distinct clay tint (rather than the same tone as the actual
-              inputs above) so it visually reads as a computed result, not
-              another field to fill in. */}
-          <div className="rounded-xl px-4 py-3 bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wide text-clay-700 dark:text-clay-400">Margin (auto)</p>
-            {editMargin ? (
-              <p className="text-base font-black text-clay-800 dark:text-clay-300">
-                ₹{Math.round(editMargin.marginRs)}
-                {editMargin.marginPct != null && ` · ${editMargin.marginPct.toFixed(0)}%`}
-              </p>
-            ) : (
-              <p className="text-base font-black text-clay-800/50 dark:text-clay-300/50">—</p>
-            )}
-          </div>
-
-          <Input
-            label="Stock (kg)"
-            type="number"
-            min="0"
-            step="0.001"
-            className="w-full"
-            value={editForm.stockValue}
-            onChange={(e) => setEditForm({ ...editForm, stockValue: e.target.value })}
-          />
-          {editError && <p className="text-sm text-rust-600 dark:text-rust-400 font-semibold">{editError}</p>}
-        </div>
-      </Modal>
+        onDelete={handleDeleteProduct}
+        deletingId={deletingId}
+      />
 
       <Modal
         isOpen={showUploadModal}
