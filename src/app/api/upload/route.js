@@ -1,8 +1,25 @@
 import { NextResponse } from "next/server";
 import { Storage } from "@google-cloud/storage";
 
-// Initialize Google Cloud Storage (Uses your local gcloud login automatically)
-const storage = new Storage();
+// Explicit service-account credentials, not bare `new Storage()`. This app
+// runs on Vercel, not a GCP-hosted runtime - bare Application Default
+// Credentials only resolves via a local `gcloud auth application-default
+// login` (developer machines) or a GCP metadata server (Cloud Run/Functions/
+// GCE), neither of which exists on Vercel, so uploads would fail in
+// production with a "Could not load the default credentials" error despite
+// working fine locally. Reuses the same GOOGLE_CLOUD_PROJECT_ID/
+// GOOGLE_CLOUD_CLIENT_EMAIL/GOOGLE_CLOUD_PRIVATE_KEY service account already
+// provisioned in Vercel's Preview and Production env vars for
+// src/app/api/export-tally/route.js. Private keys stored in env vars
+// typically have their newlines escaped as literal "\n" sequences, hence
+// the .replace() below.
+const storage = new Storage({
+  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+  credentials: {
+    client_email: process.env.GOOGLE_CLOUD_CLIENT_EMAIL,
+    private_key: (process.env.GOOGLE_CLOUD_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+  },
+});
 const BUCKET_NAME = "dry-fruits-price";
 
 export async function POST(request) {
