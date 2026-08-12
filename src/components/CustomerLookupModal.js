@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { formatINR, roundRs } from "@/lib/format";
+import { formatINR } from "@/lib/format";
+import { addLedgerEntry } from "@/lib/ledger";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
+import LedgerStatement from "@/components/LedgerStatement";
 
 const HISTORY_DISPLAY_LIMIT = 20;
 
@@ -19,30 +21,6 @@ function formatDate(createdAt) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-// Shared by "Record Payment" and "Set Opening Balance" - one atomic
-// transaction that reads the customer's current balance, applies the
-// signed delta (debit = balance up, credit = balance down), and appends the
-// entries-subcollection doc that explains it. Returns the new balance so
-// the caller can update local state without a second read.
-async function addLedgerEntry(phoneNumber, { type, amount, note }) {
-  const customerRef = doc(db, "customers", phoneNumber);
-  const entryRef = doc(collection(db, "customers", phoneNumber, "entries"));
-  const roundedAmount = roundRs(amount);
-  let newBalance = 0;
-
-  await runTransaction(db, async (transaction) => {
-    const customerDoc = await transaction.get(customerRef);
-    const currentBalance = customerDoc.exists() ? customerDoc.data().balance || 0 : 0;
-    const delta = type === "debit" ? roundedAmount : -roundedAmount;
-    newBalance = roundRs(currentBalance + delta);
-
-    transaction.set(customerRef, { balance: newBalance }, { merge: true });
-    transaction.set(entryRef, { type, amount: roundedAmount, note, createdAt: serverTimestamp() });
-  });
-
-  return newBalance;
 }
 
 export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, initialCustomer }) {
@@ -158,19 +136,6 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
 
   const balance = selectedCustomer?.balance || 0;
 
-  // Pure prefix sum (via reduce, building a fresh array) rather than a
-  // running total mutated across map iterations - see the dashboard pie
-  // chart's identical fix earlier for why that pattern trips this
-  // project's react-hooks/immutability lint rule.
-  const entriesWithRunningBalance = entries.reduce((acc, entry) => {
-    const prevBalance = acc.length > 0 ? acc[acc.length - 1].runningBalance : 0;
-    const runningBalance = roundRs(prevBalance + (entry.type === "debit" ? entry.amount : -entry.amount));
-    acc.push({ ...entry, runningBalance });
-    return acc;
-  }, []);
-  const closingBalance =
-    entriesWithRunningBalance.length > 0 ? entriesWithRunningBalance[entriesWithRunningBalance.length - 1].runningBalance : 0;
-
   const openForm = (formType) => {
     setActiveForm(formType);
     setFormAmount("");
@@ -197,7 +162,7 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
     try {
       const type = activeForm === "opening" ? "debit" : "credit";
       const note = formNote.trim() || (activeForm === "opening" ? "Opening balance" : "Payment received");
-      const newBalance = await addLedgerEntry(selectedCustomer.phoneNumber, { type, amount: amountNum, note });
+      const newBalance = await addLedgerEntry("customers", selectedCustomer.phoneNumber, { type, amount: amountNum, note });
       setSelectedCustomer((prev) => (prev ? { ...prev, balance: newBalance } : prev));
       setEntriesRefreshKey((key) => key + 1);
       setActiveForm(null);
@@ -212,7 +177,6 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
   };
 
   return (
-    <>
     <Modal
       isOpen={isOpen}
       onClose={resetAndClose}
@@ -402,61 +366,15 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
               </span>
             </div>
 
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase text-warmgray-500 dark:text-warmgray-400">
-                Account Statement {entries.length > 0 ? `(${entries.length})` : ""}
-              </p>
-              {entries.length > 0 && (
-                <button
-                  onClick={() => window.print()}
-                  className="text-xs font-bold text-clay-600 dark:text-clay-400 hover:underline print:hidden"
-                >
-                  Print Statement
-                </button>
-              )}
-            </div>
-
-            {loadingEntries ? (
-              <p className="text-sm text-warmgray-400 text-center py-6">Loading statement...</p>
-            ) : entries.length === 0 ? (
-              <p className="text-sm text-warmgray-400 text-center py-6 print:hidden">No ledger activity yet.</p>
-            ) : (
-              <div id="customer-statement" className="space-y-1.5 mb-6">
-                <div className="hidden print:block mb-3">
-                  <p className="font-bold text-black">{selectedCustomer.name} — Account Statement</p>
-                  <p className="text-xs text-gray-600">{selectedCustomer.phoneNumber}</p>
-                </div>
-                {entriesWithRunningBalance.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex justify-between items-center px-3 py-2 rounded-lg border border-warmgray-100 dark:border-warmgray-800 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-semibold text-ink-900 dark:text-ink-50 truncate">
-                        {entry.note || (entry.type === "debit" ? "Debit" : "Payment")}
-                      </p>
-                      <p className="text-warmgray-400">{formatDate(entry.createdAt)}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0 pl-2">
-                      <p
-                        className={`font-bold ${
-                          entry.type === "debit" ? "text-rust-600 dark:text-rust-400" : "text-sage-600 dark:text-sage-400"
-                        }`}
-                      >
-                        {entry.type === "debit" ? "+" : "−"}₹{formatINR(entry.amount)}
-                      </p>
-                      <p className="text-warmgray-400">Bal ₹{formatINR(entry.runningBalance)}</p>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex justify-between items-center px-3 py-2.5 mt-2 border-t border-warmgray-200 dark:border-warmgray-700 font-bold text-sm">
-                  <span className="text-ink-900 dark:text-ink-50">Closing Balance</span>
-                  <span className={closingBalance >= 0 ? "text-rust-700 dark:text-rust-400" : "text-sage-700 dark:text-sage-400"}>
-                    ₹{formatINR(Math.abs(closingBalance))}
-                  </span>
-                </div>
-              </div>
-            )}
+            <LedgerStatement
+              entries={entries}
+              loading={loadingEntries}
+              printElementId="customer-statement"
+              accountName={selectedCustomer.name}
+              accountSubtitle={selectedCustomer.phoneNumber}
+              debitLabel="Debit"
+              creditLabel="Payment"
+            />
 
             <p className="text-xs font-bold uppercase text-warmgray-500 dark:text-warmgray-400 mb-2 print:hidden">
               Purchase History {transactions.length > 0 ? `(${transactions.length})` : ""}
@@ -498,24 +416,5 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
         )}
       </div>
     </Modal>
-
-    <style>{`
-      @media print {
-        body * {
-          visibility: hidden;
-        }
-        #customer-statement,
-        #customer-statement * {
-          visibility: visible;
-        }
-        #customer-statement {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-        }
-      }
-    `}</style>
-    </>
   );
 }
