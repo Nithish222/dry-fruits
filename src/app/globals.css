@@ -128,3 +128,12 @@ body {
     transform: scale(1) translateY(0);
   }
 }
+
+/* Used by the Admin category chip strip - the right-edge gradient fade is
+   the scroll affordance, so the native scrollbar would be redundant clutter. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

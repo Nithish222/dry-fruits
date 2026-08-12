@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Products should be readable by anyone, but only updatable by an authenticated user (the shop owner).
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Transactions should only be readable and writable by an authenticated user.
+    match /transactions/{transactionId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Customer data should only be readable and writable by an authenticated user.
+    match /customers/{customerId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Per-customer ledger entries (Tally/Khata Phase 1 - credit sales,
+    // recorded payments, opening balances). Rules don't inherit to
+    // subcollections, so this needs its own block even though it lives
+    // under customers/{customerId} - same access model as the parent doc.
+    match /customers/{customerId}/entries/{entryId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Supplier data (Tally/Khata Phase 2 - payables). Same access model as
+    // customers, its receivables-side mirror.
+    match /suppliers/{supplierId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Per-supplier ledger entries (credit purchases, payments made, opening
+    // balances) - same shape and access model as customers/{id}/entries.
+    // Rules don't inherit to subcollections, so this needs its own block
+    // even though it lives under suppliers/{supplierId}.
+    match /suppliers/{supplierId}/entries/{entryId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Returns are an audit trail against a transaction - same access model
+    // as transactions themselves.
+    match /returns/{returnId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Per-transaction running total of already-returned quantity, used only
+    // to keep concurrent returns from over-refunding stock (see
+    // commitReturnToFirestore in src/app/transactions/page.js).
+    match /returnSummaries/{transactionId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
