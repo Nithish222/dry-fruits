@@ -118,5 +118,23 @@ service cloud.firestore {
       allow update: if request.auth != null && request.resource.data.seq > resource.data.seq;
       allow delete: if false;
     }
+
+    // Monthly P&L rollup buckets (Tally Phase 5, see functions/index.js's
+    // onVoucherWritten). Written only by that Cloud Function via the Admin
+    // SDK, which bypasses these rules entirely - clients never write here,
+    // so a buggy or malicious client can't falsify the P&L.
+    match /monthly_ledger_balances/{bucketId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Immutable audit trail (Tally Phase 5, see functions/index.js's
+    // onVoucherWritten) - one entry per voucher write, create or status
+    // change. Written only by the Cloud Function via the Admin SDK;
+    // clients can read for review but never write, update, or delete.
+    match /audit_logs/{logId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
   }
 }
