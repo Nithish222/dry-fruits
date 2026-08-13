@@ -13,14 +13,19 @@ import { buildSalesVoucherLines } from "@/lib/khataVouchers";
 import { getSystemAccounts } from "@/lib/systemAccounts";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
+import Modal from "@/components/ui/Modal";
 import Badge from "@/components/ui/Badge";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
-import { ShoppingCart, X } from "@/components/ui/icons";
+import { ShoppingCart, X, RotateCcw, TrendingUp, TrendingDown, Loader2, Trash2 } from "@/components/ui/icons";
 
 const CATALOG_SKELETON_TILES = 8;
+// Hides the native number-input spin buttons (Chrome/Safari/Edge via the
+// webkit pseudo-elements, Firefox via -moz-appearance) - Up/Down arrow keys
+// still work, wired explicitly in handlePriceInputArrowKey below.
+const NO_SPINNER_INPUT_CLASS = "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 
 // Runs the stock-checked, atomic Firestore write for one sale. Shared by the
 // live checkout flow and the background sync of queued offline sales, so a
@@ -159,12 +164,27 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [sortBy, setSortBy] = useState("popularity"); // "popularity" | "az" | "price"
+  const [productSalesCounts, setProductSalesCounts] = useState({}); // { [productId]: timesOrdered }
   const [cart, setCart] = useState([]);
   const [priceType, setPriceType] = useState("retail");
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCustomerLookup, setShowCustomerLookup] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState("cart"); // "cart" | "review" | "loading" | "customer"
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showClearCartConfirm, setShowClearCartConfirm] = useState(false);
+  const [priceOverrides, setPriceOverrides] = useState({}); // { [productId]: overriddenLineTotal }
+  // Raw text buffers for the review-step price inputs, used only while a
+  // field is actively being edited. A controlled input whose value is
+  // always re-derived from a rounded number can never legitimately show ""
+  // mid-edit - the instant you clear it, it snaps back to "0" instead of
+  // staying empty, which reads as "backspace doesn't work." These hold
+  // exactly what was typed (including "", "-", "12."), cleared on blur so
+  // the field then reflects the clean committed/derived value.
+  const [itemPriceDrafts, setItemPriceDrafts] = useState({});
+  const [totalDraft, setTotalDraft] = useState(null);
 
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
   const [pendingCount, setPendingCount] = useState(() => getPendingTransactions().length);
@@ -201,6 +221,29 @@ export default function Home() {
     return () => unsubscribe();
   }, []);
 
+  // One-shot, not a live listener - "most popular" doesn't need to update
+  // mid-shift, just be roughly right for sorting the catalog. Counts how
+  // many past sales included each product (line-item occurrences, not
+  // total weight - "ordered often" reads as more useful for "popular" than
+  // "ordered in bulk a couple times").
+  useEffect(() => {
+    async function fetchPopularity() {
+      try {
+        const snapshot = await getDocs(collection(db, "transactions"));
+        const counts = {};
+        snapshot.docs.forEach((doc) => {
+          for (const item of doc.data().items || []) {
+            counts[item.id] = (counts[item.id] || 0) + 1;
+          }
+        });
+        setProductSalesCounts(counts);
+      } catch (error) {
+        console.error("Error computing product popularity: ", error);
+      }
+    }
+    fetchPopularity();
+  }, []);
+
   // Non-blocking - warms systemAccounts.js's cache so the first checkout of
   // the day doesn't pay the extra round-trip, and so a missing/renamed
   // system ledger surfaces here (console) before a cashier is mid-sale. A
@@ -209,6 +252,7 @@ export default function Home() {
   useEffect(() => {
     getSystemAccounts().catch((error) => console.error("System accounts not ready: ", error));
   }, []);
+
 
   // Flush any offline-queued sales to Firestore, one at a time, stopping the
   // moment we hit connectivity trouble again so we don't spam retries.
@@ -309,21 +353,53 @@ export default function Home() {
   const categories = Array.from(
     new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
   ).sort();
-  const filteredProducts = products.filter((product) => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      product.name.toLowerCase().includes(query) || (product.tamil_name || "").toLowerCase().includes(query);
-    const matchesCategory = !categoryFilter || (product.category || "").trim() === categoryFilter;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredProducts = products
+    .filter((product) => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch =
+        product.name.toLowerCase().includes(query) || (product.tamil_name || "").toLowerCase().includes(query);
+      const matchesCategory = !categoryFilter || (product.category || "").trim() === categoryFilter;
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      // Out of stock always sinks to the bottom, regardless of sort mode -
+      // nothing a cashier can actually sell belongs ahead of what's in
+      // stock, no matter how popular/cheap/alphabetically-early it is.
+      const aOut = (a.stock_kg ?? 0) <= 0;
+      const bOut = (b.stock_kg ?? 0) <= 0;
+      if (aOut !== bOut) return aOut ? 1 : -1;
+
+      if (sortBy === "az") return a.name.localeCompare(b.name);
+      if (sortBy === "price") {
+        const aPrice = (priceType === "retail" ? a.retail_price_per_kg : a.wholesale_price_per_kg) ?? 0;
+        const bPrice = (priceType === "retail" ? b.retail_price_per_kg : b.wholesale_price_per_kg) ?? 0;
+        return aPrice - bPrice;
+      }
+      // "popularity" (default) - most-ordered first, ties broken alphabetically
+      const countDiff = (productSalesCounts[b.id] || 0) - (productSalesCounts[a.id] || 0);
+      return countDiff !== 0 ? countDiff : a.name.localeCompare(b.name);
+    });
 
   const addToCart = (product) => {
+    if ((product.stock_kg ?? 0) <= 0) return; // out of stock - nothing to sell
     const activePrice = priceType === "retail" ? product.retail_price_per_kg : product.wholesale_price_per_kg;
     setCart((prevCart) => {
       if (prevCart.find((item) => item.id === product.id)) return prevCart;
       return [...prevCart, { ...product, weight_kg: 0, unit: "kg", billedPrice: activePrice }];
     });
   };
+
+  // Drops a stale price override rather than leaving it silently wrong -
+  // an absolute-rupee override is only meaningful against the catalog
+  // baseline it was set against, and weight/price-type changes move that
+  // baseline out from under it.
+  const clearOverride = (id) =>
+    setPriceOverrides((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
 
   const handlePriceTypeChange = (newType) => {
     setPriceType(newType);
@@ -333,26 +409,41 @@ export default function Home() {
         billedPrice: newType === "retail" ? item.retail_price_per_kg : item.wholesale_price_per_kg,
       }))
     );
+    setPriceOverrides({}); // every item's catalog baseline just changed at once
+  };
+
+  // Rejects a quantity that exceeds the item's stock snapshot (taken at
+  // add-to-cart time) rather than letting it sit in the cart only to fail
+  // at final checkout, inside commitTransactionToFirestore's own stock
+  // check - by then the cashier has already walked the customer through
+  // pricing/customer details. Removes the item entirely rather than
+  // clamping to the max available, since "how much do you actually want
+  // instead" is a question for the cashier to re-decide, not silently
+  // answer for them.
+  const rejectIfExceedsStock = (item, requestedKg) => {
+    if (requestedKg <= (item.stock_kg ?? 0)) return false;
+    alert(`Not enough stock for ${item.name}. Restock to continue.`);
+    removeItem(item.id);
+    return true;
   };
 
   const updateWeight = (id, newWeightVal) => {
-    setCart((prevCart) =>
-      prevCart.map((item) => {
-        if (item.id === id) {
-          const kgValue = item.unit === "gm" ? Number(newWeightVal) / 1000 : Number(newWeightVal);
-          return { ...item, weight_kg: roundKg(kgValue) };
-        }
-        return item;
-      })
-    );
+    const item = cart.find((i) => i.id === id);
+    if (!item) return;
+    const kgValue = item.unit === "gm" ? Number(newWeightVal) / 1000 : Number(newWeightVal);
+    const rounded = roundKg(kgValue);
+    if (rejectIfExceedsStock(item, rounded)) return;
+    setCart((prevCart) => prevCart.map((i) => (i.id === id ? { ...i, weight_kg: rounded } : i)));
+    clearOverride(id);
   };
 
   const addQuickWeight = (id, kgToAdd) => {
-    setCart((prevCart) =>
-      prevCart.map((item) =>
-        item.id === id ? { ...item, weight_kg: roundKg(item.weight_kg + kgToAdd) } : item
-      )
-    );
+    const item = cart.find((i) => i.id === id);
+    if (!item) return;
+    const rounded = roundKg(item.weight_kg + kgToAdd);
+    if (rejectIfExceedsStock(item, rounded)) return;
+    setCart((prevCart) => prevCart.map((i) => (i.id === id ? { ...i, weight_kg: rounded } : i)));
+    clearOverride(id);
   };
 
   const toggleUnit = (id) => {
@@ -365,6 +456,11 @@ export default function Home() {
 
   const removeItem = (id) => {
     setCart((prevCart) => prevCart.filter((item) => item.id !== id));
+    clearOverride(id);
+    // The item list stays interactive on every checkout step - if this was
+    // the last item, bounce back to "cart" rather than leaving an
+    // adjustment/customer screen showing for an empty sale.
+    if (cart.length === 1 && cart[0].id === id) setCheckoutStep("cart");
   };
 
   const handleBillCustomer = (customer) => {
@@ -376,6 +472,131 @@ export default function Home() {
 
   const cartTotal = cart.reduce((total, item) => total + item.billedPrice * (item.weight_kg || 0), 0);
 
+  const getCatalogLineTotal = (item) => roundRs(item.billedPrice * (item.weight_kg || 0));
+  const getEffectiveLineTotal = (item) => roundRs(priceOverrides[item.id] ?? getCatalogLineTotal(item));
+  const reviewTotal = roundRs(cart.reduce((sum, item) => sum + getEffectiveLineTotal(item), 0));
+  // Reverse-derives the per-kg rate that reproduces the negotiated line
+  // total when fed through commitTransactionToFirestore's own
+  // billedPrice * weight_kg subtotal calc, so that function needs zero
+  // changes to honor a review-step override.
+  const getEffectiveBilledPrice = (item) =>
+    item.weight_kg ? getEffectiveLineTotal(item) / item.weight_kg : item.billedPrice;
+
+  const handleItemSoldPriceChange = (itemId, rawValue) => {
+    setItemPriceDrafts((prev) => ({ ...prev, [itemId]: rawValue })); // always mirrors exactly what was typed
+    if (rawValue === "" || rawValue === "-") return; // mid-edit, nothing valid to commit yet
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return;
+    setPriceOverrides((prev) => ({ ...prev, [itemId]: roundRs(Math.max(0, parsed)) }));
+  };
+  const handleItemSoldPriceBlur = (itemId) =>
+    setItemPriceDrafts((prev) => {
+      if (!(itemId in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+
+  // Total is always a mirror of the live sum of every item's current
+  // effective value - editing it directly means "split this difference
+  // equally across every item, from wherever each currently sits" (not
+  // reset to catalog first), confirmed against a worked example: items at
+  // 40/40/60 (two already individually adjusted) typing a new Total of 150
+  // nudges all three by the same +10/3, not just the untouched one.
+  const handleTotalChange = (rawValue) => {
+    setTotalDraft(rawValue);
+    if (cart.length === 0 || rawValue === "" || rawValue === "-") return;
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return;
+    const newTotal = Math.max(0, parsed);
+    const delta = newTotal - reviewTotal;
+    const perItemDelta = delta / cart.length;
+    setPriceOverrides((prev) => {
+      const next = { ...prev };
+      cart.forEach((item) => {
+        const current = prev[item.id] ?? getCatalogLineTotal(item);
+        next[item.id] = roundRs(Math.max(0, current + perItemDelta));
+      });
+      return next;
+    });
+  };
+  const handleTotalBlur = () => setTotalDraft(null);
+
+  // Revert one item back to its catalog price - same underlying action as
+  // clearOverride (used elsewhere to invalidate a stale override), just
+  // exposed as an explicit cashier-facing button here.
+  const resetItemPrice = (itemId) => {
+    clearOverride(itemId);
+    setItemPriceDrafts((prev) => {
+      if (!(itemId in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+  };
+  const resetAllPrices = () => {
+    setPriceOverrides({});
+    setItemPriceDrafts({});
+    setTotalDraft(null);
+  };
+
+  // Native number-input spin buttons are hidden (see NO_SPINNER_INPUT_CLASS
+  // below) in favor of this - Up/Down still adjusts the value by a whole
+  // rupee per press, just without the small click targets.
+  const handlePriceInputArrowKey = (e, currentValue, onChangeHandler) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const next = Math.max(0, roundRs((Number(currentValue) || 0) + delta));
+    onChangeHandler(String(next));
+  };
+
+  const goToReview = () => {
+    if (cart.length === 0 || cartTotal <= 0) {
+      alert("Cart is empty.");
+      return;
+    }
+    setItemPriceDrafts({});
+    setTotalDraft(null);
+    setCheckoutStep("review");
+  };
+  const goToCustomerStep = () => {
+    setCheckoutStep("loading");
+    setTimeout(() => {
+      setCheckoutStep((prev) => (prev === "loading" ? "customer" : prev));
+    }, 350);
+  };
+  const backToCart = () => setCheckoutStep("cart");
+  const backToReview = () => setCheckoutStep("review");
+  const requestDiscardCustomerStep = () => setShowDiscardConfirm(true);
+  const confirmDiscardCustomerStep = () => {
+    setShowDiscardConfirm(false);
+    setCustomerName("");
+    setCustomerPhoneNumber("");
+    setCustomerSuggestions([]);
+    setSelectedCustomer(null);
+    setCheckoutStep("cart");
+  };
+
+  // Full reset back to a blank sale - shared by the "Clear order" button and
+  // by ReceiptModal's onClose once a sale has gone through.
+  const resetOrderState = () => {
+    setCart([]);
+    setCustomerName("");
+    setCustomerPhoneNumber("");
+    setCustomerSuggestions([]);
+    setSelectedCustomer(null);
+    setCheckoutStep("cart");
+    setPriceOverrides({});
+    setItemPriceDrafts({});
+    setTotalDraft(null);
+  };
+  const requestClearCart = () => setShowClearCartConfirm(true);
+  const confirmClearCart = () => {
+    setShowClearCartConfirm(false);
+    resetOrderState();
+  };
+
   // Best-effort - drawn from the same client-side customer list the
   // suggestion dropdown already loads, so it can be a snapshot behind a
   // just-recorded payment elsewhere. Fine for a warning, not a hard limit.
@@ -383,10 +604,7 @@ export default function Home() {
     allCustomers?.find((c) => c.phoneNumber === customerPhoneNumber)?.balance || 0;
 
   const openPaymentModal = () => {
-    if (cart.length === 0 || cartTotal <= 0) {
-      alert("Cart is empty.");
-      return;
-    }
+    if (cart.length === 0 || reviewTotal <= 0) return; // unreachable via normal flow - goToReview already guarded this
     // Validate customer details
     if (!customerName || !customerPhoneNumber) {
       alert("Please enter customer name and phone number.");
@@ -414,12 +632,12 @@ export default function Home() {
     const now = new Date();
     const payload = {
       items: cart.map((item) => ({
-        id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: item.billedPrice,
+        id: item.id, name: item.name, weight_kg: item.weight_kg, billedPrice: getEffectiveBilledPrice(item),
         cost_price_per_kg: item.cost_price_per_kg ?? null,
       })),
       customer: { name: customerName, phoneNumber: customerPhoneNumber },
       priceType,
-      grandTotal: cartTotal,
+      grandTotal: reviewTotal,
       payment,
       createdAt: now.toISOString(),
       createdBy: { uid: user?.uid || null, email: user?.email || null },
@@ -432,10 +650,10 @@ export default function Home() {
         name: item.name,
         qty: Number((item.weight_kg || 0).toFixed(3)),
         unit: "kg",
-        price: item.billedPrice,
-        total: Number((item.billedPrice * (item.weight_kg || 0)).toFixed(2)),
+        price: getEffectiveBilledPrice(item),
+        total: Number(getEffectiveLineTotal(item).toFixed(2)),
       })),
-      grandTotal: cartTotal,
+      grandTotal: reviewTotal,
       priceType,
       createdAt: now,
       customer: { name: customerName, phoneNumber: customerPhoneNumber },
@@ -506,6 +724,17 @@ export default function Home() {
                 ))}
               </Select>
             )}
+            <Select
+              size="lg"
+              className="flex-shrink-0 font-semibold"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort by"
+            >
+              <option value="popularity">Most Popular</option>
+              <option value="az">Name (A-Z)</option>
+              <option value="price">Price (Low to High)</option>
+            </Select>
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 pt-1">
@@ -521,43 +750,49 @@ export default function Home() {
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredProducts.map((product) => {
                   const displayPrice = priceType === "retail" ? product.retail_price_per_kg : product.wholesale_price_per_kg;
-                  const isLow = (product.stock_kg ?? 0) < LOW_STOCK_THRESHOLD_KG;
+                  const stock = product.stock_kg ?? 0;
+                  const isOutOfStock = stock <= 0;
+                  const isLow = stock < LOW_STOCK_THRESHOLD_KG;
                   return (
                     <div
                       key={product.id}
                       onClick={() => addToCart(product)}
-                      className="bg-white dark:bg-warmgray-800/50 rounded-2xl hover:border-clay-400 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer p-4 border border-warmgray-200 dark:border-warmgray-700 shadow-sm flex flex-col min-h-40 active:scale-95 active:translate-y-0"
+                      aria-disabled={isOutOfStock}
+                      className={
+                        isOutOfStock
+                          ? "bg-warmgray-50 dark:bg-warmgray-900/40 rounded-2xl transition-all duration-200 cursor-not-allowed p-4 border border-warmgray-200 dark:border-warmgray-800 flex flex-col min-h-40 opacity-50 grayscale"
+                          : "bg-white dark:bg-warmgray-800/50 rounded-2xl hover:border-clay-400 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer p-4 border border-warmgray-200 dark:border-warmgray-700 shadow-sm flex flex-col min-h-40 active:scale-95 active:translate-y-0"
+                      }
                     >
                       <div className="flex items-start justify-between gap-2">
-                        {product.category ? (
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400 truncate min-w-0">{product.category}</span>
+                        {product.tamil_name ? (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400 truncate min-w-0">{product.tamil_name}</span>
                         ) : (
                           <span />
                         )}
                         <span
                           className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border ${
-                            isLow
+                            isOutOfStock
+                              ? "bg-warmgray-100 dark:bg-warmgray-800 border-warmgray-200 dark:border-warmgray-700 text-warmgray-500 dark:text-warmgray-400"
+                              : isLow
                               ? "bg-rust-100 dark:bg-rust-950 border-rust-200 dark:border-rust-700 text-rust-700 dark:text-rust-300"
                               : "bg-sage-100 dark:bg-sage-950 border-sage-200 dark:border-sage-700 text-sage-700 dark:text-sage-300"
                           }`}
                         >
-                          {product.stock_kg}kg
+                          {isOutOfStock ? "Out of stock" : `${product.stock_kg}kg`}
                         </span>
                       </div>
 
                       <h3 className="font-medium text-ink-900 dark:text-ink-50 text-sm leading-snug line-clamp-2 min-h-[2.5rem] mt-1">
                         {product.name}
                       </h3>
-                      {product.tamil_name && (
-                        <p className="text-xs font-normal text-warmgray-400 truncate">{product.tamil_name}</p>
+                      {product.category && (
+                        <p className="text-xs font-normal text-warmgray-400 truncate">{product.category}</p>
                       )}
 
-                      <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-xl font-black text-clay-800 dark:text-clay-400 tabular-nums">₹{formatINR(displayPrice)}</span>
-                          <span className="text-xs font-bold text-warmgray-400">/kg</span>
-                        </div>
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400 ml-auto">{priceType}</span>
+                      <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex items-baseline gap-1">
+                        <span className="text-xl font-black text-clay-800 dark:text-clay-400 tabular-nums">₹{formatINR(displayPrice)}</span>
+                        <span className="text-xs font-bold text-warmgray-400">/kg</span>
                       </div>
                     </div>
                   );
@@ -571,19 +806,31 @@ export default function Home() {
           <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex justify-between items-center">
             <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50">Current Bill</h2>
 
-            <div className="bg-warmgray-100 dark:bg-warmgray-800 p-1 rounded-lg flex text-xs font-bold border border-warmgray-200 dark:border-warmgray-700">
-              <button
-                onClick={() => handlePriceTypeChange("retail")}
-                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "retail" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
-              >
-                Retail
-              </button>
-              <button
-                onClick={() => handlePriceTypeChange("wholesale")}
-                className={`px-3 py-1.5 rounded-md transition-all ${priceType === "wholesale" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
-              >
-                Wholesale
-              </button>
+            <div className="flex items-center gap-2">
+              <div className="bg-warmgray-100 dark:bg-warmgray-800 p-1 rounded-lg flex text-xs font-bold border border-warmgray-200 dark:border-warmgray-700">
+                <button
+                  onClick={() => handlePriceTypeChange("retail")}
+                  className={`px-3 py-1.5 rounded-md transition-all ${priceType === "retail" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
+                >
+                  Retail
+                </button>
+                <button
+                  onClick={() => handlePriceTypeChange("wholesale")}
+                  className={`px-3 py-1.5 rounded-md transition-all ${priceType === "wholesale" ? "bg-clay-400 text-white shadow-sm" : "text-warmgray-600 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50"}`}
+                >
+                  Wholesale
+                </button>
+              </div>
+              {cart.length > 0 && (
+                <button
+                  onClick={requestClearCart}
+                  aria-label="Clear order"
+                  title="Clear order"
+                  className="p-2 rounded-lg text-warmgray-400 hover:text-rust-600 dark:hover:text-rust-400 hover:bg-rust-50 dark:hover:bg-rust-950/40 flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -647,73 +894,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Customer Input Section */}
-          <div className="p-5 border-t border-warmgray-200 dark:border-warmgray-700 bg-cream-50 dark:bg-cream-950">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-md font-bold text-ink-900 dark:text-ink-50">Customer Details</h3>
-              <button
-                onClick={() => setShowCustomerLookup(true)}
-                className="text-xs font-bold text-clay-600 dark:text-clay-400 hover:underline"
-              >
-                Lookup Customer
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <Input
-                  type="text"
-                  className="w-full font-medium"
-                  placeholder="Customer Name"
-                  aria-label="Customer Name"
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value);
-                    setSelectedCustomer(null); // Clear selected customer if name changes
-                  }}
-                />
-              </div>
-              <div className="relative">
-                <Input
-                  type="tel" // Use type="tel" for phone numbers
-                  className="w-full font-medium"
-                  placeholder="Phone Number"
-                  aria-label="Phone Number"
-                  value={customerPhoneNumber}
-                  onChange={(e) => {
-                    setCustomerPhoneNumber(e.target.value);
-                    setSelectedCustomer(null); // Clear selected customer if phone changes
-                  }}
-                />
-                {showCustomerSuggestions && customerSuggestions.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-white dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
-                    {customerSuggestions.map((customer) => (
-                      <li
-                        key={customer.id}
-                        onClick={() => {
-                          setCustomerName(customer.name);
-                          setCustomerPhoneNumber(customer.phoneNumber);
-                          setSelectedCustomer(customer);
-                          setShowCustomerSuggestions(false); // Hide suggestions after selection
-                        }}
-                        className="px-4 py-2 cursor-pointer hover:bg-warmgray-100 dark:hover:bg-warmgray-700 flex justify-between items-center gap-2"
-                      >
-                        <div className="min-w-0">
-                          <span className="font-medium text-ink-900 dark:text-ink-50 block truncate">{customer.name}</span>
-                          <span className="text-warmgray-500 dark:text-warmgray-400 text-sm">{customer.phoneNumber}</span>
-                        </div>
-                        {customer.balance > 0 && (
-                          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border bg-rust-100 dark:bg-rust-950 border-rust-200 dark:border-rust-700 text-rust-700 dark:text-rust-300">
-                            ₹{formatINR(customer.balance)} owed
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </div>
-
           <div className="p-5 bg-white dark:bg-warmgray-900 border-t border-warmgray-200 dark:border-warmgray-700 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <span className="text-warmgray-500 dark:text-warmgray-400 font-semibold">Grand Total</span>
@@ -725,14 +905,287 @@ export default function Home() {
               variant="primary"
               size="lg"
               className="w-full"
-              onClick={openPaymentModal}
+              onClick={goToReview}
               disabled={cart.length === 0 || cartTotal === 0}
             >
-              Checkout & Pay
+              Continue
             </Button>
           </div>
+
         </Card>
       </div>
+
+      <Modal
+        isOpen={checkoutStep === "review" || checkoutStep === "loading" || checkoutStep === "customer"}
+        onClose={checkoutStep === "review" ? backToCart : checkoutStep === "customer" ? requestDiscardCustomerStep : backToReview}
+        title={checkoutStep === "review" ? "Review & Adjust Prices" : "Customer Details"}
+        panelClassName="max-w-xl h-[min(80vh,34rem)]"
+        headerActions={
+          checkoutStep === "customer" ? (
+            <button
+              onClick={() => setShowCustomerLookup(true)}
+              className="text-xs font-bold text-clay-600 dark:text-clay-400 hover:underline mr-2"
+            >
+              Lookup Customer
+            </button>
+          ) : undefined
+        }
+        footer={
+          checkoutStep === "review" ? (
+            <div className="flex gap-3">
+              <Button variant="secondary" size="lg" className="flex-1" onClick={backToCart}>
+                Back
+              </Button>
+              <Button variant="primary" size="lg" className="flex-1" onClick={goToCustomerStep}>
+                Continue
+              </Button>
+            </div>
+          ) : checkoutStep === "customer" ? (
+            <div className="flex gap-3">
+              <Button variant="secondary" size="lg" className="flex-1" onClick={backToReview}>
+                Back
+              </Button>
+              <Button
+                variant="primary"
+                size="lg"
+                className="flex-1"
+                onClick={openPaymentModal}
+                disabled={cart.length === 0 || reviewTotal === 0}
+              >
+                Checkout &amp; Pay
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="secondary" size="lg" className="flex-1" disabled>
+                Back
+              </Button>
+              <Button variant="primary" size="lg" className="flex-1" disabled>
+                Continue
+              </Button>
+            </div>
+          )
+        }
+      >
+        {checkoutStep === "review" ? (
+          <>
+            <div className="p-3 space-y-2 overflow-y-auto">
+              {cart.map((item) => {
+                const catalogTotal = getCatalogLineTotal(item);
+                const effectiveTotal = getEffectiveLineTotal(item);
+                const priceState = effectiveTotal > catalogTotal ? "positive" : effectiveTotal < catalogTotal ? "negative" : "neutral";
+                const badgeVariant = priceState === "positive" ? "success" : "danger";
+                const inputColorClass =
+                  priceState === "positive"
+                    ? "border-sage-300 dark:border-sage-700 text-sage-700 dark:text-sage-400"
+                    : priceState === "negative"
+                    ? "border-rust-300 dark:border-rust-700 text-rust-700 dark:text-rust-400"
+                    : "border-warmgray-200 dark:border-warmgray-700 text-ink-900 dark:text-ink-50";
+                return (
+                  <div key={item.id} className="bg-white dark:bg-warmgray-900 p-2.5 rounded-lg border border-warmgray-200 dark:border-warmgray-700 shadow-sm flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm text-ink-900 dark:text-ink-50 truncate">{item.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-warmgray-500 dark:text-warmgray-400">Catalog: ₹{formatINR(catalogTotal)}</span>
+                        {priceState !== "neutral" && (
+                          <Badge variant={badgeVariant} size="sm">
+                            {priceState === "positive" ? "+" : "-"}₹{formatINR(Math.abs(effectiveTotal - catalogTotal))}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {priceState !== "neutral" && (
+                      <span
+                        className={`flex-shrink-0 flex items-center gap-0.5 text-xs font-bold ${
+                          priceState === "positive" ? "text-sage-600 dark:text-sage-400" : "text-rust-600 dark:text-rust-400"
+                        }`}
+                      >
+                        {priceState === "positive" ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                        {catalogTotal > 0 ? Math.abs(((effectiveTotal - catalogTotal) / catalogTotal) * 100).toFixed(1) : "0.0"}%
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => resetItemPrice(item.id)}
+                      disabled={priceState === "neutral"}
+                      aria-label={`Reset ${item.name} to catalog price`}
+                      title="Reset to catalog price"
+                      className="flex-shrink-0 p-1.5 rounded-lg text-warmgray-400 hover:text-clay-600 dark:hover:text-clay-400 hover:bg-clay-50 dark:hover:bg-clay-950/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <div className="relative flex-shrink-0">
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-warmgray-400">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={itemPriceDrafts[item.id] ?? effectiveTotal}
+                        onChange={(e) => handleItemSoldPriceChange(item.id, e.target.value)}
+                        onBlur={() => handleItemSoldPriceBlur(item.id)}
+                        onKeyDown={(e) => handlePriceInputArrowKey(e, itemPriceDrafts[item.id] ?? effectiveTotal, (v) => handleItemSoldPriceChange(item.id, v))}
+                        aria-label={`Sold price for ${item.name}`}
+                        className={`w-20 bg-warmgray-50 dark:bg-warmgray-800 border rounded-lg pl-4 pr-2 py-1.5 font-bold text-sm text-right focus:outline-none focus:ring-2 focus:ring-clay-400 ${NO_SPINNER_INPUT_CLASS} ${inputColorClass}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="p-3 border-t border-warmgray-100 dark:border-warmgray-700">
+              <div className="flex justify-between items-center">
+                <span className="text-warmgray-500 dark:text-warmgray-400 font-semibold text-sm">Total</span>
+                <div className="flex items-center gap-2">
+                  {reviewTotal !== cartTotal && (
+                    <span
+                      className={`flex-shrink-0 flex items-center gap-0.5 text-xs font-bold ${
+                        reviewTotal > cartTotal ? "text-sage-600 dark:text-sage-400" : "text-rust-600 dark:text-rust-400"
+                      }`}
+                    >
+                      {reviewTotal > cartTotal ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                      {cartTotal > 0 ? Math.abs(((reviewTotal - cartTotal) / cartTotal) * 100).toFixed(1) : "0.0"}%
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={resetAllPrices}
+                    disabled={Object.keys(priceOverrides).length === 0}
+                    aria-label="Reset all prices to catalog"
+                    title="Reset all to catalog price"
+                    className="flex-shrink-0 p-1.5 rounded-lg text-warmgray-400 hover:text-clay-600 dark:hover:text-clay-400 hover:bg-clay-50 dark:hover:bg-clay-950/40 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <div className="relative flex-shrink-0">
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-black text-clay-600 dark:text-clay-400">₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={totalDraft ?? reviewTotal}
+                      onChange={(e) => handleTotalChange(e.target.value)}
+                      onBlur={handleTotalBlur}
+                      onKeyDown={(e) => handlePriceInputArrowKey(e, totalDraft ?? reviewTotal, handleTotalChange)}
+                      aria-label="Adjusted total"
+                      className={`w-24 bg-warmgray-50 dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded-lg pl-5 pr-2 py-1.5 font-black text-right text-clay-600 dark:text-clay-400 focus:outline-none focus:ring-2 focus:ring-clay-400 ${NO_SPINNER_INPUT_CLASS}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : checkoutStep === "loading" ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-warmgray-400">
+            <Loader2 className="w-8 h-8 animate-spin text-clay-500" />
+            <p className="text-sm font-semibold">Loading customer details…</p>
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <div>
+              <Input
+                type="text"
+                className="w-full font-medium"
+                placeholder="Customer Name"
+                aria-label="Customer Name"
+                value={customerName}
+                onChange={(e) => {
+                  setCustomerName(e.target.value);
+                  setSelectedCustomer(null); // Clear selected customer if name changes
+                }}
+              />
+            </div>
+            <div className="relative">
+              <Input
+                type="tel" // Use type="tel" for phone numbers
+                className="w-full font-medium"
+                placeholder="Phone Number"
+                aria-label="Phone Number"
+                value={customerPhoneNumber}
+                onChange={(e) => {
+                  setCustomerPhoneNumber(e.target.value);
+                  setSelectedCustomer(null); // Clear selected customer if phone changes
+                }}
+              />
+              {showCustomerSuggestions && customerSuggestions.length > 0 && (
+                <ul className="absolute z-10 w-full bg-white dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                  {customerSuggestions.map((customer) => (
+                    <li
+                      key={customer.id}
+                      onClick={() => {
+                        setCustomerName(customer.name);
+                        setCustomerPhoneNumber(customer.phoneNumber);
+                        setSelectedCustomer(customer);
+                        setShowCustomerSuggestions(false); // Hide suggestions after selection
+                      }}
+                      className="px-4 py-2 cursor-pointer hover:bg-warmgray-100 dark:hover:bg-warmgray-700 flex justify-between items-center gap-2"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-medium text-ink-900 dark:text-ink-50 block truncate">{customer.name}</span>
+                        <span className="text-warmgray-500 dark:text-warmgray-400 text-sm">{customer.phoneNumber}</span>
+                      </div>
+                      {customer.balance > 0 && (
+                        <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap border bg-rust-100 dark:bg-rust-950 border-rust-200 dark:border-rust-700 text-rust-700 dark:text-rust-300">
+                          ₹{formatINR(customer.balance)} owed
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-warmgray-50 dark:bg-warmgray-800/50 border border-warmgray-200 dark:border-warmgray-700">
+              <span className="text-warmgray-500 dark:text-warmgray-400 font-semibold text-sm">Grand Total</span>
+              <span className="text-2xl font-black text-clay-600 dark:text-clay-400">₹{formatINR(reviewTotal)}</span>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={showDiscardConfirm}
+        onClose={() => setShowDiscardConfirm(false)}
+        title="Discard Order?"
+        panelClassName="max-w-sm"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" size="md" className="flex-1" onClick={() => setShowDiscardConfirm(false)}>
+              Keep Editing
+            </Button>
+            <Button variant="danger" size="md" className="flex-1" onClick={confirmDiscardCustomerStep}>
+              Discard
+            </Button>
+          </div>
+        }
+      >
+        <div className="p-5">
+          <p className="text-sm text-warmgray-600 dark:text-warmgray-300">
+            The customer name and phone number you entered will be lost. The items in the cart will stay.
+          </p>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showClearCartConfirm}
+        onClose={() => setShowClearCartConfirm(false)}
+        title="Clear Order?"
+        panelClassName="max-w-sm"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" size="md" className="flex-1" onClick={() => setShowClearCartConfirm(false)}>
+              Keep Order
+            </Button>
+            <Button variant="danger" size="md" className="flex-1" onClick={confirmClearCart}>
+              Clear Order
+            </Button>
+          </div>
+        }
+      >
+        <div className="p-5">
+          <p className="text-sm text-warmgray-600 dark:text-warmgray-300">
+            This empties the cart and clears any customer details entered so far. This can&apos;t be undone.
+          </p>
+        </div>
+      </Modal>
 
       <CustomerLookupModal
         isOpen={showCustomerLookup}
@@ -742,7 +1195,7 @@ export default function Home() {
 
       <PaymentModal
         isOpen={showPaymentModal}
-        total={cartTotal}
+        total={reviewTotal}
         customerBalance={currentCustomerBalance}
         onClose={() => setShowPaymentModal(false)}
         onConfirm={handleCheckout}
@@ -754,12 +1207,7 @@ export default function Home() {
         onClose={() => {
           setShowReceipt(false);
           setReceiptData(null);
-          setCart([]);
-          // Clear customer details for next order
-          setCustomerName("");
-          setCustomerPhoneNumber("");
-          setCustomerSuggestions([]);
-          setSelectedCustomer(null);
+          resetOrderState();
         }}
       />
     </main>
