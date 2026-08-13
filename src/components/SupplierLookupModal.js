@@ -3,21 +3,29 @@
 import { useEffect, useState } from "react";
 import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/components/AuthProvider";
 import { formatINR } from "@/lib/format";
-import { addLedgerEntry } from "@/lib/ledger";
+import {
+  recordSupplierPurchaseWithVoucher,
+  recordSupplierPaymentWithVoucher,
+  recordSupplierOpeningBalanceWithVoucher,
+} from "@/lib/khataVouchers";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 import LedgerStatement from "@/components/LedgerStatement";
 
-// Tally Phase 2 (supplier payables) - deliberately standalone from
-// inventory/purchases. No line items, no stock updates, no link to
-// products: this is pure running-balance tracking, same as OkCredit/
+// Tally Phase 2 (supplier payables) - deliberately standalone from stock:
+// no line items, no stock updates, no link to products, same as OkCredit/
 // Khatabook keep a supplier khata decoupled from any Stock/Billing module.
 // If purchases should ever also update stock automatically, that's a
-// separate, larger feature - not in scope here.
+// separate, larger feature - not in scope here. (Phase 6: purchases/
+// payments/opening balances DO now post a matching double-entry voucher
+// via lib/khataVouchers.js - dr Purchase Account/cr Sundry Creditors etc -
+// but that's expense recognition, not inventory/stock movement.)
 //
 // Mirrors CustomerLookupModal's shape closely (same entries subcollection
-// via lib/ledger's addLedgerEntry, same LedgerStatement), but:
+// shape, same LedgerStatement), but:
 // - suppliers/{id} uses an auto-generated doc id (no phone-number-as-key,
 //   since unlike checkout customers, a supplier is never looked up by
 //   phone at a point of sale).
@@ -27,6 +35,7 @@ import LedgerStatement from "@/components/LedgerStatement";
 //   down" - only the human-facing meaning of the sign flips.
 // - no purchase-history section - suppliers aren't linked to `transactions`.
 export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }) {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [allSuppliers, setAllSuppliers] = useState([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
@@ -40,6 +49,7 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
   const [activeForm, setActiveForm] = useState(null); // "purchase" | "payment" | "opening" | null
   const [formAmount, setFormAmount] = useState("");
   const [formNote, setFormNote] = useState("");
+  const [formPaymentMode, setFormPaymentMode] = useState("cash");
   const [savingEntry, setSavingEntry] = useState(false);
   const [entryError, setEntryError] = useState("");
 
@@ -116,6 +126,7 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
     setActiveForm(formType);
     setFormAmount("");
     setFormNote("");
+    setFormPaymentMode("cash");
     setEntryError("");
   };
 
@@ -127,24 +138,43 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
     setEntryError("");
   };
 
+  const formAmountNum = Number(formAmount) || 0;
+  const paymentExceedsBalance = activeForm === "payment" && formAmountNum > balance;
+
   const handleSubmitEntry = async () => {
     const amountNum = Number(formAmount);
     if (!amountNum || amountNum <= 0) {
       setEntryError("Enter an amount greater than 0.");
       return;
     }
+    if (activeForm === "payment" && amountNum > balance) {
+      setEntryError(`Cannot pay ₹${formatINR(amountNum)} - you only owe ₹${formatINR(balance)}.`);
+      return;
+    }
     setSavingEntry(true);
     setEntryError("");
     try {
-      // Purchase on credit and opening balance both raise what the shop
-      // owes (debit); a payment made lowers it (credit) - mirrors the
-      // customer ledger's debit-up/credit-down mechanics exactly.
-      const type = activeForm === "payment" ? "credit" : "debit";
       const note =
         formNote.trim() ||
-        (activeForm === "opening" ? "Opening balance" : activeForm === "payment" ? "Payment made" : "Credit purchase");
-      const newBalance = await addLedgerEntry("suppliers", selectedSupplier.id, { type, amount: amountNum, note });
-      setSelectedSupplier((prev) => (prev ? { ...prev, balance: newBalance } : prev));
+        (activeForm === "opening"
+          ? "Opening balance"
+          : activeForm === "payment"
+          ? `Payment made (${formPaymentMode === "gpay" ? "UPI/GPay" : "Cash"})`
+          : "Credit purchase");
+      const createdBy = { uid: user?.uid || null, email: user?.email || null };
+      const result =
+        activeForm === "purchase"
+          ? await recordSupplierPurchaseWithVoucher({ supplierId: selectedSupplier.id, amount: amountNum, note, createdBy })
+          : activeForm === "payment"
+          ? await recordSupplierPaymentWithVoucher({
+              supplierId: selectedSupplier.id,
+              amount: amountNum,
+              paymentMode: formPaymentMode,
+              note,
+              createdBy,
+            })
+          : await recordSupplierOpeningBalanceWithVoucher({ supplierId: selectedSupplier.id, amount: amountNum, note, createdBy });
+      setSelectedSupplier((prev) => (prev ? { ...prev, balance: result.newBalance } : prev));
       setEntriesRefreshKey((key) => key + 1);
       setActiveForm(null);
       setFormAmount("");
@@ -317,7 +347,7 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
             </div>
 
             <div
-              className={`flex justify-between items-center px-4 py-3 rounded-xl border mb-3 ${
+              className={`flex justify-between items-center px-4 py-3 rounded-xl border mb-3 print:hidden ${
                 balance > 0
                   ? "bg-rust-50 dark:bg-rust-950/40 border-rust-200 dark:border-rust-800"
                   : balance < 0
@@ -384,6 +414,7 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
                 <Input
                   type="number"
                   min="0"
+                  max={activeForm === "payment" ? balance : undefined}
                   step="0.01"
                   size="sm"
                   autoFocus
@@ -392,6 +423,12 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
                   value={formAmount}
                   onChange={(e) => setFormAmount(e.target.value)}
                 />
+                {activeForm === "payment" && (
+                  <Select size="sm" className="w-full" value={formPaymentMode} onChange={(e) => setFormPaymentMode(e.target.value)}>
+                    <option value="cash">Cash</option>
+                    <option value="gpay">UPI / GPay</option>
+                  </Select>
+                )}
                 <Input
                   type="text"
                   size="sm"
@@ -400,6 +437,11 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
                   value={formNote}
                   onChange={(e) => setFormNote(e.target.value)}
                 />
+                {paymentExceedsBalance && (
+                  <p className="text-xs font-semibold text-rust-600 dark:text-rust-400">
+                    Cannot exceed the amount owed (₹{formatINR(balance)}).
+                  </p>
+                )}
                 {entryError && <p className="text-xs font-semibold text-rust-600 dark:text-rust-400">{entryError}</p>}
                 <div className="flex gap-2">
                   <button
@@ -411,7 +453,7 @@ export default function SupplierLookupModal({ isOpen, onClose, initialSupplier }
                   </button>
                   <button
                     onClick={handleSubmitEntry}
-                    disabled={savingEntry}
+                    disabled={savingEntry || paymentExceedsBalance}
                     className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-clay-400 hover:bg-clay-600 disabled:opacity-50"
                   >
                     {savingEntry ? "Saving..." : "Save"}

@@ -53,5 +53,104 @@ service cloud.firestore {
     match /returnSummaries/{transactionId} {
       allow read, write: if request.auth != null;
     }
+
+    // Itemized supplier purchase receipts (Receive Stock feature) - the
+    // full per-item detail of a physical delivery, mirroring
+    // transactions/{id}'s role as the POS sale's detailed record (see
+    // receiveStockWithVoucher in src/lib/purchases.js). Same access model
+    // as everything else - no role infra exists to tighten this further.
+    match /purchases/{purchaseId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Itemized supplier returns (Debit Note feature) - the return-side
+    // mirror of purchases/{id} above, see returnStockToSupplierWithVoucher
+    // in src/lib/purchases.js. Same access model as everything else.
+    match /purchaseReturns/{purchaseReturnId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Chart of Accounts (Tally Phase 4 - double-entry engine, additive to
+    // the Khata system above, see src/lib/accounting.js). Groups and
+    // Ledgers share one flat collection. Structural fields become
+    // immutable after creation (Phase 5) - only currentBalance, isActive,
+    // and name (rename) may ever change post-creation; category,
+    // normalBalance, isGroup, parentGroupId, openingBalance,
+    // openingBalanceDate, createdBy, createdAt are write-once. Never
+    // hard-deletable - soft-disable via isActive instead.
+    match /accounts/{accountId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentBalance', 'isActive', 'name']);
+      allow delete: if false;
+    }
+
+    // Per-account ledger entries written by postVoucher/cancelVoucher, one
+    // doc per voucher line - same shape and access model as
+    // customers/{id}/entries and suppliers/{id}/entries. Rules don't
+    // inherit to subcollections, so this needs its own block. Create-only:
+    // nothing in accounting.js ever updates or deletes an entry doc once
+    // written, so that's enforced here too (Phase 5).
+    match /accounts/{accountId}/entries/{entryId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    // Vouchers (Receipt/Payment/Journal/Contra) - the accounting engine's
+    // source-of-truth entries. Phase 5: the mutation contract
+    // accounting.js already followed by convention is now enforced here.
+    // A voucher can only ever be created active, or transition
+    // active -> cancelled via exactly the {status, cancelledAt,
+    // cancelledBy, reversalVoucherId} field set postVoucher/cancelVoucher
+    // already use - never deleted, never edited any other way. Note: rules
+    // can't iterate `lines` to validate sum(dr) === sum(cr) server-side (no
+    // loop/reduce support) - that invariant still relies on postVoucher's
+    // client-side validation before any write; this only guards the
+    // create/update/delete *shape*, not the accounting arithmetic itself.
+    match /vouchers/{voucherId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.status == 'active'
+        && request.resource.data.cancelledAt == null
+        && request.resource.data.reversalVoucherId == null
+        && request.resource.data.lines is list
+        && request.resource.data.lines.size() >= 2;
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelledBy', 'reversalVoucherId'])
+        && resource.data.status == 'active'
+        && request.resource.data.status == 'cancelled';
+      allow delete: if false;
+    }
+
+    // Per-type, per-financial-year sequence counters backing voucherNumber
+    // generation (see getFinancialYearLabel in src/lib/accounting.js).
+    // Phase 5: seq may only increase (monotonic), never deleted - a gap or
+    // rewind would be evidence of an out-of-band write.
+    match /counters/{counterId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && request.resource.data.seq > resource.data.seq;
+      allow delete: if false;
+    }
+
+    // Monthly P&L rollup buckets (Tally Phase 5, see functions/index.js's
+    // onVoucherWritten). Written only by that Cloud Function via the Admin
+    // SDK, which bypasses these rules entirely - clients never write here,
+    // so a buggy or malicious client can't falsify the P&L.
+    match /monthly_ledger_balances/{bucketId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Immutable audit trail (Tally Phase 5, see functions/index.js's
+    // onVoucherWritten) - one entry per voucher write, create or status
+    // change. Written only by the Cloud Function via the Admin SDK;
+    // clients can read for review but never write, update, or delete.
+    match /audit_logs/{logId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
   }
 }

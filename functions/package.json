@@ -1,0 +1,13 @@
+{
+  "name": "functions",
+  "description": "Cloud Functions for dry-fruits-web (Tally Phase 5 - P&L rollup + audit trail)",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^14.2.0",
+    "firebase-functions": "^7.3.2"
+  }
+}

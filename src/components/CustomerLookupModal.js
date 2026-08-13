@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/components/AuthProvider";
 import { formatINR } from "@/lib/format";
-import { addLedgerEntry } from "@/lib/ledger";
+import { recordCustomerPaymentWithVoucher, recordCustomerOpeningBalanceWithVoucher } from "@/lib/khataVouchers";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import LedgerStatement from "@/components/LedgerStatement";
@@ -24,6 +25,7 @@ function formatDate(createdAt) {
 }
 
 export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, initialCustomer }) {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [allCustomers, setAllCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
@@ -160,10 +162,13 @@ export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, i
     setSavingEntry(true);
     setEntryError("");
     try {
-      const type = activeForm === "opening" ? "debit" : "credit";
       const note = formNote.trim() || (activeForm === "opening" ? "Opening balance" : "Payment received");
-      const newBalance = await addLedgerEntry("customers", selectedCustomer.phoneNumber, { type, amount: amountNum, note });
-      setSelectedCustomer((prev) => (prev ? { ...prev, balance: newBalance } : prev));
+      const createdBy = { uid: user?.uid || null, email: user?.email || null };
+      const result =
+        activeForm === "opening"
+          ? await recordCustomerOpeningBalanceWithVoucher({ customerId: selectedCustomer.phoneNumber, amount: amountNum, note, createdBy })
+          : await recordCustomerPaymentWithVoucher({ customerId: selectedCustomer.phoneNumber, amount: amountNum, note, createdBy });
+      setSelectedCustomer((prev) => (prev ? { ...prev, balance: result.newBalance } : prev));
       setEntriesRefreshKey((key) => key + 1);
       setActiveForm(null);
       setFormAmount("");

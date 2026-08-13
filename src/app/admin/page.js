@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
 import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
 import EditProductModal from "@/components/EditProductModal";
 import PageHeader from "@/components/ui/PageHeader";
@@ -11,11 +11,16 @@ import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
 import Skeleton from "@/components/ui/Skeleton";
 import Modal from "@/components/ui/Modal";
+import DatePicker from "@/components/ui/DatePicker";
 import { Trash2 } from "@/components/ui/icons";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
 const SKELETON_ROWS = 3;
 const EMPTY_ADD_FORM = { name: "", category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function AdminPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -43,6 +48,12 @@ export default function AdminPage() {
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [savingAdd, setSavingAdd] = useState(false);
   const [addError, setAddError] = useState("");
+
+  const [showTallyExport, setShowTallyExport] = useState(false);
+  const [tallyFrom, setTallyFrom] = useState(todayStr());
+  const [tallyTo, setTallyTo] = useState(todayStr());
+  const [exportingTally, setExportingTally] = useState(false);
+  const [tallyExportError, setTallyExportError] = useState("");
 
   // Mouse-drag-to-scroll for the category chip strip. Trackpad swipes and
   // shift+wheel already work natively on any overflow-x-auto container -
@@ -201,6 +212,37 @@ export default function AdminPage() {
     }
   };
 
+  // fetch + Blob download rather than a plain navigation/link, since the
+  // export route requires a Bearer token (Authorization header) that a
+  // window.location.href navigation can't carry.
+  const handleTallyExport = async () => {
+    setExportingTally(true);
+    setTallyExportError("");
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch(`/api/export-tally?from=${tallyFrom}&to=${tallyTo}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Export failed - try again.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tally-export-${tallyFrom}_to_${tallyTo}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowTallyExport(false);
+    } catch (error) {
+      console.error("Tally export failed: ", error);
+      setTallyExportError(error.message || "Export failed - try again.");
+    } finally {
+      setExportingTally(false);
+    }
+  };
+
   const handleChipMouseDown = (e) => {
     dragState.current = { isDown: true, startX: e.pageX, startScrollLeft: chipStripRef.current?.scrollLeft ?? 0, moved: false };
   };
@@ -240,6 +282,9 @@ export default function AdminPage() {
         subtitle="Manage your product catalog, prices, and stock levels."
         actions={
           <>
+            <Button variant="secondary" size="md" onClick={() => setShowTallyExport(true)}>
+              Export to Tally
+            </Button>
             <Button variant="secondary" size="md" onClick={() => setShowUploadModal(true)}>
               Upload Price Sheet
             </Button>
@@ -496,6 +541,35 @@ export default function AdminPage() {
             onChange={(e) => setAddForm({ ...addForm, stockValue: e.target.value })}
           />
           {addError && <p className="text-sm text-rust-600 dark:text-rust-400 font-semibold">{addError}</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showTallyExport}
+        onClose={() => {
+          if (exportingTally) return;
+          setShowTallyExport(false);
+          setTallyExportError("");
+        }}
+        title="Export to Tally"
+        panelClassName="max-w-sm"
+        footer={
+          <Button variant="primary" size="md" className="w-full" disabled={exportingTally} onClick={handleTallyExport}>
+            {exportingTally ? "Exporting..." : "Download XML"}
+          </Button>
+        }
+      >
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-warmgray-500 dark:text-warmgray-400 font-medium">
+            Downloads a simple accounting-only XML (Debit Cash/Sundry Debtors, Credit Sales Account per transaction) for
+            TallyPrime&apos;s Import Data &gt; Vouchers. No GST/HSN/item lines.
+          </p>
+          <div className="flex items-center gap-2">
+            <DatePicker value={tallyFrom} onChange={setTallyFrom} max={tallyTo} aria-label="From date" />
+            <span className="text-xs text-warmgray-400">to</span>
+            <DatePicker value={tallyTo} onChange={setTallyTo} max={todayStr()} aria-label="To date" />
+          </div>
+          {tallyExportError && <p className="text-sm text-rust-600 dark:text-rust-400 font-semibold">{tallyExportError}</p>}
         </div>
       </Modal>
 
