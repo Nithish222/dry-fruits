@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
+import { parsePriceSheetWorkbook } from "@/lib/priceSheet";
 import EditProductModal from "@/components/EditProductModal";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
@@ -16,7 +17,7 @@ import { Trash2 } from "@/components/ui/icons";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
 const SKELETON_ROWS = 3;
-const EMPTY_ADD_FORM = { name: "", category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "" };
+const EMPTY_ADD_FORM = { name: "", tamilName: "", category: "", retailPrice: "", wholesalePrice: "", costPrice: "", stockValue: "", priceEffectiveDate: "" };
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -142,11 +143,13 @@ export default function AdminPage() {
     try {
       await addDoc(collection(db, "products"), {
         name,
+        tamil_name: addForm.tamilName.trim() || null,
         category,
         retail_price_per_kg: retailPrice,
         wholesale_price_per_kg: wholesalePrice,
         cost_price_per_kg: costPrice,
         stock_kg: roundKg(stockValue),
+        price_effective_date: addForm.priceEffectiveDate || null,
         last_updated: serverTimestamp(),
       });
       closeAddModal();
@@ -178,12 +181,12 @@ export default function AdminPage() {
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file && (file.name.endsWith(".csv") || file.name.endsWith(".xlsx"))) {
+    if (file && file.name.endsWith(".xlsx")) {
       setSelectedFile(file);
       setUploadStatus({ type: "", message: "" });
     } else {
       setSelectedFile(null);
-      setUploadStatus({ type: "error", message: "Select a valid .csv or .xlsx sheet." });
+      setUploadStatus({ type: "error", message: "Select a valid .xlsx price sheet." });
     }
   };
 
@@ -193,20 +196,58 @@ export default function AdminPage() {
 
     setUploading(true);
     setUploadStatus({ type: "", message: "" });
-    const formData = new FormData();
-    formData.append("file", selectedFile);
 
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      if (res.ok) {
-        setUploadStatus({ type: "success", message: `Prices successfully synced from ${selectedFile.name}!` });
-        setSelectedFile(null);
-        document.getElementById("file-input").value = "";
-      } else {
-        setUploadStatus({ type: "error", message: "Upload failed. Please try again." });
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const { category, items, skipped } = parsePriceSheetWorkbook(arrayBuffer);
+
+      const existingSnapshot = await getDocs(collection(db, "products"));
+      const existingByName = new Map(
+        existingSnapshot.docs.map((d) => [(d.data().name || "").trim().toLowerCase(), d])
+      );
+
+      const batch = writeBatch(db);
+      let created = 0;
+      let updated = 0;
+
+      for (const item of items) {
+        const existingDoc = existingByName.get(item.name.trim().toLowerCase());
+        const fields = {
+          category,
+          cost_price_per_kg: item.costPrice,
+          wholesale_price_per_kg: item.wholesalePrice,
+          retail_price_per_kg: item.retailPrice,
+          price_effective_date: item.priceEffectiveDate,
+          last_updated: serverTimestamp(),
+        };
+        if (item.tamilName) fields.tamil_name = item.tamilName;
+
+        if (existingDoc) {
+          batch.update(existingDoc.ref, fields);
+          updated += 1;
+        } else {
+          batch.set(doc(collection(db, "products")), {
+            name: item.name,
+            tamil_name: item.tamilName || null,
+            stock_kg: 0,
+            ...fields,
+          });
+          created += 1;
+        }
       }
+
+      await batch.commit();
+
+      const skippedNote = skipped.length > 0 ? ` ${skipped.length} row${skipped.length === 1 ? "" : "s"} skipped: ${skipped.map((s) => s.reason).join(" ")}` : "";
+      setUploadStatus({
+        type: skipped.length > 0 ? "error" : "success",
+        message: `Synced ${items.length} item${items.length === 1 ? "" : "s"} — ${created} created, ${updated} updated.${skippedNote}`,
+      });
+      setSelectedFile(null);
+      document.getElementById("file-input").value = "";
     } catch (err) {
-      setUploadStatus({ type: "error", message: "Network error occurred." });
+      console.error("Failed to process price sheet: ", err);
+      setUploadStatus({ type: "error", message: err.message || "Failed to process the price sheet - try again." });
     } finally {
       setUploading(false);
     }
@@ -376,6 +417,7 @@ export default function AdminPage() {
               <Th>Retail ₹/kg</Th>
               <Th>Wholesale ₹/kg</Th>
               <Th>Cost ₹/kg</Th>
+              <Th>Price As Of</Th>
               <Th>Margin</Th>
               <Th>Stock (kg)</Th>
               <Th>Status</Th>
@@ -389,6 +431,7 @@ export default function AdminPage() {
                   <Td><Skeleton className="h-4 w-14" /></Td>
                   <Td><Skeleton className="h-4 w-14" /></Td>
                   <Td><Skeleton className="h-4 w-14" /></Td>
+                  <Td><Skeleton className="h-4 w-16" /></Td>
                   <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
                   <Td><Skeleton className="h-4 w-10" /></Td>
                   <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
@@ -409,6 +452,7 @@ export default function AdminPage() {
               <Th>Retail ₹/kg</Th>
               <Th>Wholesale ₹/kg</Th>
               <Th>Cost ₹/kg</Th>
+              <Th>Price As Of</Th>
               <Th>Margin</Th>
               <Th>Stock (kg)</Th>
               <Th>Status</Th>
@@ -426,11 +470,17 @@ export default function AdminPage() {
                     onClick={() => openEditModal(product)}
                     className="cursor-pointer"
                   >
-                    <Td className="font-semibold text-ink-900 dark:text-ink-50">{product.name}</Td>
+                    <Td className="font-semibold text-ink-900 dark:text-ink-50">
+                      {product.name}
+                      {product.tamil_name && (
+                        <span className="block text-xs font-normal text-warmgray-400">{product.tamil_name}</span>
+                      )}
+                    </Td>
                     <Td className="text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
                     <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
                     <Td>₹{formatINR(product.wholesale_price_per_kg ?? 0)}</Td>
                     <Td>{product.cost_price_per_kg != null ? `₹${formatINR(product.cost_price_per_kg)}` : <span className="text-warmgray-400">—</span>}</Td>
+                    <Td className="text-warmgray-500 dark:text-warmgray-400">{product.price_effective_date || "—"}</Td>
                     <Td>
                       {margin ? (
                         <Badge variant={margin.marginRs <= 0 ? "danger" : "success"} size="sm">
@@ -495,6 +545,13 @@ export default function AdminPage() {
             autoFocus
           />
           <Input
+            label="Tamil Name (optional)"
+            className="w-full"
+            value={addForm.tamilName}
+            onChange={(e) => setAddForm({ ...addForm, tamilName: e.target.value })}
+            placeholder="e.g. முந்திரி"
+          />
+          <Input
             label="Category"
             className="w-full"
             value={addForm.category}
@@ -531,6 +588,17 @@ export default function AdminPage() {
             onChange={(e) => setAddForm({ ...addForm, costPrice: e.target.value })}
             placeholder="Leave blank if unknown"
           />
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400 mb-2">
+              Price As Of (optional)
+            </label>
+            <DatePicker
+              value={addForm.priceEffectiveDate}
+              onChange={(value) => setAddForm({ ...addForm, priceEffectiveDate: value })}
+              max={todayStr()}
+              aria-label="Price as of date"
+            />
+          </div>
           <Input
             label="Stock (kg)"
             type="number"
@@ -589,14 +657,15 @@ export default function AdminPage() {
       >
         <div className="p-5">
           <p className="text-sm text-warmgray-500 dark:text-warmgray-400 font-medium mb-5">
-            Upload a new vendor spreadsheet to instantly update catalog prices across all registers.
+            Upload a .xlsx price sheet with a Category label, and a table of Item Name / Tamil Name / Purchase Price /
+            WS / R / As Per columns. Matching products are updated; new item names are added to the catalog.
           </p>
           <form onSubmit={handleUpload} className="space-y-5">
             <div className="border-2 border-dashed border-warmgray-300 dark:border-warmgray-700 rounded-xl p-6 text-center bg-warmgray-50 dark:bg-warmgray-800/50">
               <input
                 id="file-input"
                 type="file"
-                accept=".csv, .xlsx"
+                accept=".xlsx"
                 onChange={handleFileChange}
                 disabled={uploading}
                 className="block w-full text-sm text-warmgray-500 dark:text-warmgray-400 file:mr-4 file:py-2.5 file:px-6 file:rounded-lg file:border-0 file:bg-clay-400 file:text-white hover:file:bg-clay-600 cursor-pointer mx-auto font-semibold"
