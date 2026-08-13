@@ -5,6 +5,8 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
 import { formatINR, roundRs } from "@/lib/format";
 import { seedChartOfAccounts, cancelVoucher, ACCOUNT_CATEGORIES } from "@/lib/accounting";
+import { seedOpeningInventoryBalance } from "@/lib/inventoryOpeningBalance";
+import { SYSTEM_LEDGER_NAMES } from "@/lib/systemAccounts";
 import VoucherForm from "@/components/VoucherForm";
 import AccountLedgerModal from "@/components/AccountLedgerModal";
 import AddAccountModal from "@/components/AddAccountModal";
@@ -108,6 +110,10 @@ export default function AccountsPage() {
   const [seeding, setSeeding] = useState(false);
   const [seedError, setSeedError] = useState("");
 
+  const [seedingInventory, setSeedingInventory] = useState(false);
+  const [seedInventoryResult, setSeedInventoryResult] = useState(null);
+  const [seedInventoryError, setSeedInventoryError] = useState("");
+
   const [vouchers, setVouchers] = useState([]);
   const [loadingVouchers, setLoadingVouchers] = useState(true);
 
@@ -180,6 +186,15 @@ export default function AccountsPage() {
 
   const accountRows = useMemo(() => buildAccountTree(accounts), [accounts]);
   const leafAccounts = useMemo(() => accounts.filter((a) => !a.isGroup && a.isActive !== false), [accounts]);
+
+  // The button's own visibility condition IS the seed's guard condition -
+  // once seeded, Inventory's balance is no longer 0 and the button
+  // disappears on its own, no separate "already seeded" flag needed.
+  const inventoryAccount = useMemo(
+    () => accounts.find((a) => a.name === SYSTEM_LEDGER_NAMES.inventoryAsset),
+    [accounts]
+  );
+  const showSeedInventoryButton = inventoryAccount && roundRs(inventoryAccount.currentBalance || 0) === 0;
 
   const trialBalanceRows = useMemo(() => {
     return ACCOUNT_CATEGORIES.map((category) => ({
@@ -264,6 +279,21 @@ export default function AccountsPage() {
     }
   };
 
+  const handleSeedOpeningInventory = async () => {
+    setSeedingInventory(true);
+    setSeedInventoryError("");
+    setSeedInventoryResult(null);
+    try {
+      const result = await seedOpeningInventoryBalance({ createdBy: { uid: user?.uid || null, email: user?.email || null } });
+      setSeedInventoryResult(result);
+    } catch (error) {
+      console.error("Failed to seed opening Inventory balance: ", error);
+      setSeedInventoryError(error.message || "Failed to seed opening Inventory balance - try again.");
+    } finally {
+      setSeedingInventory(false);
+    }
+  };
+
   const handleCancelVoucher = async () => {
     if (!cancelTarget) return;
     setCancelling(true);
@@ -301,11 +331,31 @@ export default function AccountsPage() {
               <h2 className="text-sm font-bold text-ink-900 dark:text-ink-50 tracking-wide uppercase">Chart of Accounts</h2>
             </div>
             {accountRows.length > 0 && (
-              <Button variant="secondary" size="sm" onClick={() => setShowAddAccount(true)}>
-                + Add Account
-              </Button>
+              <div className="flex items-center gap-2">
+                {showSeedInventoryButton && (
+                  <Button variant="secondary" size="sm" onClick={handleSeedOpeningInventory} disabled={seedingInventory}>
+                    {seedingInventory ? "Seeding..." : "Seed Opening Inventory Balance"}
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => setShowAddAccount(true)}>
+                  + Add Account
+                </Button>
+              </div>
             )}
           </div>
+          {(seedInventoryResult || seedInventoryError) && (
+            <div className="px-6 py-3 border-b border-warmgray-100 dark:border-warmgray-700">
+              {seedInventoryResult && (
+                <p className="text-xs font-semibold text-sage-700 dark:text-sage-400">
+                  Seeded ₹{formatINR(seedInventoryResult.total)} opening Inventory balance.
+                  {seedInventoryResult.missingCostCount > 0
+                    ? ` ${seedInventoryResult.missingCostCount} product${seedInventoryResult.missingCostCount === 1 ? "" : "s"} with stock had no cost price and were skipped.`
+                    : ""}
+                </p>
+              )}
+              {seedInventoryError && <p className="text-xs font-semibold text-rust-600 dark:text-rust-400">{seedInventoryError}</p>}
+            </div>
+          )}
           {loadingAccounts ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: SKELETON_ROWS }).map((_, i) => (

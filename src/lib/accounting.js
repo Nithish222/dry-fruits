@@ -266,6 +266,7 @@ const DEFAULT_CHART_OF_ACCOUNTS = [
   { key: "bank_group", name: "Bank Accounts", isGroup: true, category: "asset", normalBalance: "dr", parent: "curr_assets" },
   { key: "bank", name: "Bank Account", isGroup: false, category: "asset", normalBalance: "dr", parent: "bank_group" },
   { key: "debtors", name: "Sundry Debtors", isGroup: true, category: "asset", normalBalance: "dr", parent: "curr_assets", isSystemAccount: true },
+  { key: "inventory", name: "Inventory", isGroup: false, category: "asset", normalBalance: "dr", parent: "curr_assets", isSystemAccount: true },
 
   { key: "fixed_assets", name: "Fixed Assets", isGroup: true, category: "asset", normalBalance: "dr", parent: null },
 
@@ -277,6 +278,7 @@ const DEFAULT_CHART_OF_ACCOUNTS = [
 
   { key: "direct_exp", name: "Direct Expenses", isGroup: true, category: "expense", normalBalance: "dr", parent: null },
   { key: "carriage_inward", name: "Carriage Inward", isGroup: false, category: "expense", normalBalance: "dr", parent: "direct_exp" },
+  { key: "cogs", name: "Cost of Goods Sold", isGroup: false, category: "expense", normalBalance: "dr", parent: "direct_exp", isSystemAccount: true },
 
   { key: "indirect_exp", name: "Indirect Expenses", isGroup: true, category: "expense", normalBalance: "dr", parent: null },
   { key: "rent", name: "Rent", isGroup: false, category: "expense", normalBalance: "dr", parent: "indirect_exp" },

@@ -4,10 +4,10 @@ import { db } from "@/lib/firebase";
 // Tally Phase 6 - the exact Chart of Accounts leaf ledger names POS
 // checkout, Khata<->voucher wiring (khataVouchers.js), and the returns fix
 // all key off by name. "cash", "salesRevenue", "purchaseExpense" reuse
-// Phase 4's existing seeded leaves; the other four are added once via the
+// Phase 4's existing seeded leaves; the other six are added once via the
 // Chart of Accounts "+ Add Account" UI. firestore.rules lets an account be
 // renamed post-creation (`name` is one of the few mutable fields) -
-// renaming any of these seven here will silently break checkout/Khata
+// renaming any of these nine here will silently break checkout/Khata
 // voucher posting/returns until this map is updated to match. Treat this
 // list as load-bearing.
 export const SYSTEM_LEDGER_NAMES = {
@@ -18,6 +18,13 @@ export const SYSTEM_LEDGER_NAMES = {
   customerReceivables: "Sundry Debtors (Customers)",
   supplierPayables: "Sundry Creditors (Suppliers)",
   openingBalanceEquity: "Opening Balance Equity",
+  // Inventory-as-asset: purchases capitalize into inventoryAsset instead of
+  // expensing to purchaseExpense; sales/returns move value between
+  // inventoryAsset and cogsExpense. purchaseExpense itself is left wired up
+  // above only for historical vouchers already posted against it - no
+  // current code path debits/credits it anymore.
+  inventoryAsset: "Inventory",
+  cogsExpense: "Cost of Goods Sold",
 };
 
 let cache = null;
