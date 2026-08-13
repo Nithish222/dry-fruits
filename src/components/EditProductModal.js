@@ -7,12 +7,17 @@ import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import ToggleGroup from "@/components/ui/ToggleGroup";
+import DatePicker from "@/components/ui/DatePicker";
 import { Trash2 } from "@/components/ui/icons";
 
 const STOCK_MODE_OPTIONS = [
   { value: "set", label: "Set to" },
   { value: "add", label: "Add stock" },
 ];
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 // The one product-edit surface, shared by Price Setup's click-to-edit table
 // and the Dashboard's Low Stock Alerts "Restock" action - same component,
@@ -30,10 +35,12 @@ const STOCK_MODE_OPTIONS = [
 // as ReturnModal.js).
 export default function EditProductModal({ product, onClose, onDelete, deletingId, restockMode = false }) {
   const [form, setForm] = useState(() => ({
+    tamilName: product?.tamil_name || "",
     category: product?.category || "",
     retailPrice: String(product?.retail_price_per_kg ?? 0),
     wholesalePrice: String(product?.wholesale_price_per_kg ?? 0),
     costPrice: product?.cost_price_per_kg != null ? String(product.cost_price_per_kg) : "",
+    priceEffectiveDate: product?.price_effective_date || "",
     stockMode: restockMode ? "add" : "set",
     stockValue: restockMode ? "" : String(product?.stock_kg ?? 0),
   }));
@@ -85,10 +92,12 @@ export default function EditProductModal({ product, onClose, onDelete, deletingI
     setError("");
     try {
       await updateDoc(doc(db, "products", product.id), {
+        tamil_name: form.tamilName.trim() || null,
         category,
         retail_price_per_kg: retailPrice,
         wholesale_price_per_kg: wholesalePrice,
         cost_price_per_kg: costPrice,
+        price_effective_date: form.priceEffectiveDate || null,
         // "Add" uses Firestore's atomic increment (safe without a read -
         // no transaction needed for a single-document update) rather than
         // computing currentStock + stockValueNum client-side, so two
@@ -173,6 +182,13 @@ export default function EditProductModal({ product, onClose, onDelete, deletingI
           onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
           placeholder="e.g. Cashews"
         />
+        <Input
+          label="Tamil Name (optional)"
+          className="w-full"
+          value={form.tamilName}
+          onChange={(e) => setForm((prev) => ({ ...prev, tamilName: e.target.value }))}
+          placeholder="e.g. முந்திரி"
+        />
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Retail ₹/kg"
@@ -203,6 +219,17 @@ export default function EditProductModal({ product, onClose, onDelete, deletingI
           onChange={(e) => setForm((prev) => ({ ...prev, costPrice: e.target.value }))}
           placeholder="Leave blank if unknown"
         />
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400 mb-2">
+            Price As Of (optional)
+          </label>
+          <DatePicker
+            value={form.priceEffectiveDate}
+            onChange={(value) => setForm((prev) => ({ ...prev, priceEffectiveDate: value }))}
+            max={todayStr()}
+            aria-label="Price as of date"
+          />
+        </div>
 
         {/* Read-only, always derived from Retail/Cost above - never a
             directly-editable field, so it can't drift out of sync. */}

@@ -310,7 +310,9 @@ export default function Home() {
     new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
   ).sort();
   const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.toLowerCase();
+    const matchesSearch =
+      product.name.toLowerCase().includes(query) || (product.tamil_name || "").toLowerCase().includes(query);
     const matchesCategory = !categoryFilter || (product.category || "").trim() === categoryFilter;
     return matchesSearch && matchesCategory;
   });
@@ -546,6 +548,9 @@ export default function Home() {
                       <h3 className="font-medium text-ink-900 dark:text-ink-50 text-sm leading-snug line-clamp-2 min-h-[2.5rem] mt-1">
                         {product.name}
                       </h3>
+                      {product.tamil_name && (
+                        <p className="text-xs font-normal text-warmgray-400 truncate">{product.tamil_name}</p>
+                      )}
 
                       <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                         <div className="flex items-baseline gap-1">
