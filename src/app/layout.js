@@ -15,6 +15,17 @@ const inter = Inter({
 export const metadata = {
   title: "Dry Fruits POS",
   description: "Real-time billing and inventory",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ST POS",
+  },
+};
+
+// themeColor lives here, not in metadata - moved to a dedicated export as
+// of Next.js 14+ (metadata.themeColor is deprecated/no longer read).
+export const viewport = {
+  themeColor: "#c9793a",
 };
 
 export default function RootLayout({ children, ...props }) {
