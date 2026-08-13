@@ -99,6 +99,18 @@ async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, r
       throw new Error("Select at least one item to return.");
     }
 
+    // Reverses the sale's COGS recognition - puts the cost value back into
+    // Inventory and takes it back out of COGS, since the goods are
+    // physically back on the shelf. Missing cost price contributes ₹0, same
+    // convention as the sale side (commitTransactionToFirestore) and
+    // computeProfit().
+    let cogsReversalAmount = 0;
+    for (const item of returnItems) {
+      if (item.costPriceAtSale != null && Number.isFinite(item.costPriceAtSale)) {
+        cogsReversalAmount = roundRs(cogsReversalAmount + item.costPriceAtSale * item.weight_kg);
+      }
+    }
+
     // Credit-first refund split (Phase 6): a return against a transaction
     // that had a credit component reduces the customer's Udhaar before any
     // cash/GPay leaves the till, bounded by however much of THAT sale's
@@ -128,6 +140,7 @@ async function commitReturnToFirestore({ originalTransactionId, itemsToReturn, r
       creditReduction,
       cashOrGpayRefund,
       originalPaymentMode: originalPayment.mode,
+      cogsReversalAmount,
       systemAccounts,
     });
     const voucherDate = new Date().toISOString().slice(0, 10);

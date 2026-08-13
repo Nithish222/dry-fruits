@@ -15,12 +15,34 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Pure - the sale/return COGS line-pair is symmetric, just dr/cr flipped: a
+// sale moves cost OUT of Inventory INTO COGS (dr COGS / cr Inventory); a
+// return reverses that (dr Inventory / cr COGS), since the physical goods
+// are back on the shelf. Returns [] rather than a zero-amount pair when
+// amount rounds to 0 - validateLines() rejects zero-amount lines, so an
+// all-missing-cost-price sale/return simply omits the pair instead of
+// posting one.
+function buildCogsLinePair({ amount, reversal = false, systemAccounts }) {
+  const { cogsExpense, inventoryAsset } = systemAccounts;
+  const rounded = roundRs(amount);
+  if (!(rounded > 0)) return [];
+  const cogsType = reversal ? "cr" : "dr";
+  const inventoryType = reversal ? "dr" : "cr";
+  return [
+    { accountId: cogsExpense.id, type: cogsType, amount: rounded, category: cogsExpense.category },
+    { accountId: inventoryAsset.id, type: inventoryType, amount: rounded, category: inventoryAsset.category },
+  ];
+}
+
 // Pure - builds a POS sale's Sales-voucher lines from the same payment
 // payload commitTransactionToFirestore already validates (src/app/page.js).
 // "Received now" in credit mode has no cash/gpay sub-method field in the
 // schema - treated as cash by convention (documented assumption; a future
-// enhancement could let the cashier specify).
-export function buildSalesVoucherLines({ payment, grandTotal, systemAccounts }) {
+// enhancement could let the cashier specify). cogsAmount (missing-cost-price
+// items already excluded by the caller, same convention as computeProfit()
+// in lib/format.js) adds the Inventory->COGS recognition lines onto the
+// same voucher as the revenue-side lines, rather than posting a second one.
+export function buildSalesVoucherLines({ payment, grandTotal, cogsAmount, systemAccounts }) {
   const { cash, gpayClearing, salesRevenue, customerReceivables } = systemAccounts;
   const total = roundRs(grandTotal);
   const lines = [];
@@ -39,14 +61,16 @@ export function buildSalesVoucherLines({ payment, grandTotal, systemAccounts }) 
   }
 
   lines.push({ accountId: salesRevenue.id, type: "cr", amount: total, category: salesRevenue.category });
+  lines.push(...buildCogsLinePair({ amount: cogsAmount, reversal: false, systemAccounts }));
   return lines;
 }
 
 // Pure - builds a return's reversing-journal lines. See
 // commitReturnToFirestore (src/app/transactions/page.js) for how
 // creditReduction/cashOrGpayRefund are computed (credit-first refund split
-// against the original sale's credit component).
-export function buildReturnVoucherLines({ refundAmount, creditReduction, cashOrGpayRefund, originalPaymentMode, systemAccounts }) {
+// against the original sale's credit component). cogsReversalAmount mirrors
+// cogsAmount above, computed from the returned items' costPriceAtSale.
+export function buildReturnVoucherLines({ refundAmount, creditReduction, cashOrGpayRefund, originalPaymentMode, cogsReversalAmount, systemAccounts }) {
   const { cash, gpayClearing, salesRevenue, customerReceivables } = systemAccounts;
   const lines = [{ accountId: salesRevenue.id, type: "dr", amount: roundRs(refundAmount), category: salesRevenue.category }];
 
@@ -59,6 +83,7 @@ export function buildReturnVoucherLines({ refundAmount, creditReduction, cashOrG
     const cashSide = originalPaymentMode === "gpay" ? gpayClearing : cash;
     lines.push({ accountId: cashSide.id, type: "cr", amount: roundRs(cashOrGpayRefund), category: cashSide.category });
   }
+  lines.push(...buildCogsLinePair({ amount: cogsReversalAmount, reversal: true, systemAccounts }));
   return lines;
 }
 
@@ -141,8 +166,12 @@ export async function recordCustomerOpeningBalanceWithVoucher({ customerId, amou
   });
 }
 
+// Amount-only, no item/product breakdown - still capitalizes into
+// Inventory like receiveStockWithVoucher, since Inventory is one aggregate
+// GL balance in this system, not tracked per-SKU. A lump amount with no
+// item detail posts just as validly as an itemized receipt.
 export async function recordSupplierPurchaseWithVoucher({ supplierId, amount, note, createdBy, date = todayStr() }) {
-  const { purchaseExpense, supplierPayables } = await getSystemAccounts();
+  const { inventoryAsset, supplierPayables } = await getSystemAccounts();
   return postKhataActionWithVoucher({
     khataCollection: "suppliers",
     khataAccountId: supplierId,
@@ -153,7 +182,7 @@ export async function recordSupplierPurchaseWithVoucher({ supplierId, amount, no
     voucherType: "purchase",
     voucherDate: date,
     buildVoucherLines: (amt) => [
-      { accountId: purchaseExpense.id, type: "dr", amount: amt, category: purchaseExpense.category },
+      { accountId: inventoryAsset.id, type: "dr", amount: amt, category: inventoryAsset.category },
       { accountId: supplierPayables.id, type: "cr", amount: amt, category: supplierPayables.category },
     ],
   });

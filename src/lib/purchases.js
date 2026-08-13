@@ -41,7 +41,7 @@ export async function receiveStockWithVoucher({
   const supplierEntryRef = doc(collection(db, "suppliers", supplierId, "entries"));
   // Plain reference-data read, outside the transaction - same pattern
   // VoucherForm.js/khataVouchers.js/page.js's checkout already use.
-  const { purchaseExpense, supplierPayables, cash } = await getSystemAccounts();
+  const { inventoryAsset, supplierPayables, cash } = await getSystemAccounts();
 
   let grandTotal = 0;
   let paidNow = 0;
@@ -94,10 +94,12 @@ export async function receiveStockWithVoucher({
       if (!supplierDoc.exists()) throw new Error("Supplier not found.");
     }
 
-    // ---- voucher lines: dr Purchase Account = grandTotal, cr Cash =
-    // paidNow (if >0), cr Sundry Creditors = creditAmount (if >0).
+    // ---- voucher lines: dr Inventory = grandTotal (capitalized as an
+    // asset, not expensed - COGS is recognized later, at the moment each
+    // unit sells), cr Cash = paidNow (if >0), cr Sundry Creditors =
+    // creditAmount (if >0).
     const voucherLines = [
-      { accountId: purchaseExpense.id, type: "dr", amount: grandTotal, category: purchaseExpense.category },
+      { accountId: inventoryAsset.id, type: "dr", amount: grandTotal, category: inventoryAsset.category },
     ];
     if (paidNow > 0) voucherLines.push({ accountId: cash.id, type: "cr", amount: paidNow, category: cash.category });
     if (creditAmount > 0) {
@@ -198,7 +200,7 @@ export async function returnStockToSupplierWithVoucher({
   const returnRef = doc(collection(db, "purchaseReturns"));
   const supplierRef = doc(db, "suppliers", supplierId);
   const supplierEntryRef = doc(collection(db, "suppliers", supplierId, "entries"));
-  const { purchaseExpense, supplierPayables } = await getSystemAccounts();
+  const { inventoryAsset, supplierPayables } = await getSystemAccounts();
 
   let totalAmount = 0;
   let newSupplierBalance = 0;
@@ -240,12 +242,13 @@ export async function returnStockToSupplierWithVoucher({
 
     // dr Sundry Creditors (reduces what we owe - or, past zero, creates a
     // receivable the supplier now owes the shop, carried forward as a
-    // credit), cr Purchase Account (reverses the expense). No cash line -
-    // unlike a customer return, a supplier debit note doesn't hand back
-    // physical cash; it's purely a debt adjustment.
+    // credit), cr Inventory (reverses the capitalized stock - it's leaving
+    // the shop, not being sold). No cash line - unlike a customer return, a
+    // supplier debit note doesn't hand back physical cash; it's purely a
+    // debt adjustment.
     const voucherLines = [
       { accountId: supplierPayables.id, type: "dr", amount: totalAmount, category: supplierPayables.category },
-      { accountId: purchaseExpense.id, type: "cr", amount: totalAmount, category: purchaseExpense.category },
+      { accountId: inventoryAsset.id, type: "cr", amount: totalAmount, category: inventoryAsset.category },
     ];
     const voucherContext = await readVoucherPostContext(transaction, { lines: voucherLines, voucherType: "journal", date });
 

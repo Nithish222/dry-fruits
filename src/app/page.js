@@ -35,6 +35,13 @@ async function commitTransactionToFirestore(payload) {
 
   await runTransaction(db, async (transaction) => {
     const productUpdates = [];
+    // Cost at the moment of sale, read fresh from the same product doc
+    // already fetched below for stock validation - NOT from payload.items'
+    // client-cached cost_price_per_kg, which can be stale (captured
+    // whenever the item was added to the cart, not at checkout time). Used
+    // both for the costPriceAtSale snapshot and the COGS voucher line below,
+    // so both derive from one transactionally-consistent source.
+    const costPriceByItemId = new Map();
 
     for (const item of payload.items) {
       if (item.weight_kg <= 0) {
@@ -51,10 +58,22 @@ async function commitTransactionToFirestore(payload) {
       if (currentStock < item.weight_kg) {
         throw new Error(`Not enough stock for ${item.name}. Available: ${currentStock}kg, Requested: ${item.weight_kg}kg`);
       }
+      costPriceByItemId.set(item.id, productDoc.data().cost_price_per_kg ?? null);
 
       // Round on every write so repeated decimal subtractions across many
       // sales don't drift into floating-point noise like 98.35000000000001.
       productUpdates.push({ ref: productRef, newStock: roundKg(currentStock - item.weight_kg) });
+    }
+
+    // Missing cost price contributes ₹0 to COGS rather than being excluded
+    // - same convention computeProfit() (src/lib/format.js) already uses
+    // for the dashboard's profit figure, not a new/different policy.
+    let cogsAmount = 0;
+    for (const item of payload.items) {
+      const costPrice = costPriceByItemId.get(item.id);
+      if (costPrice != null && Number.isFinite(costPrice)) {
+        cogsAmount = roundRs(cogsAmount + costPrice * item.weight_kg);
+      }
     }
 
     const customerRef = doc(db, "customers", payload.customer.phoneNumber);
@@ -67,7 +86,7 @@ async function commitTransactionToFirestore(payload) {
     // Reads only, still - same rule the rest of this transaction already
     // follows (every read before any write).
     const voucherDate = payload.createdAt.slice(0, 10);
-    const voucherLines = buildSalesVoucherLines({ payment: payload.payment, grandTotal: payload.grandTotal, systemAccounts });
+    const voucherLines = buildSalesVoucherLines({ payment: payload.payment, grandTotal: payload.grandTotal, cogsAmount, systemAccounts });
     const voucherContext = await readVoucherPostContext(transaction, { lines: voucherLines, voucherType: "sales", date: voucherDate });
 
     if (!customerDoc.exists()) {
@@ -101,8 +120,9 @@ async function commitTransactionToFirestore(payload) {
         subtotal: item.billedPrice * (item.weight_kg || 0),
         // Snapshotted at sale time, mirroring billedPrice, so a later cost
         // price change (or the product being deleted) never rewrites the
-        // margin on a past sale.
-        costPriceAtSale: item.cost_price_per_kg ?? null,
+        // margin on a past sale. Sourced from costPriceByItemId (the fresh
+        // in-transaction read above), not payload.items - see comment there.
+        costPriceAtSale: costPriceByItemId.get(item.id) ?? null,
       })),
       priceType: payload.priceType,
       grandTotal: payload.grandTotal,
