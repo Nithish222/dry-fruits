@@ -1,18 +1,6 @@
 "use client";
 
-import { formatINR, roundRs } from "@/lib/format";
-
-function formatDate(createdAt) {
-  if (!createdAt) return "N/A";
-  const date = createdAt.seconds ? new Date(createdAt.seconds * 1000) : new Date(createdAt);
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { formatINR, roundRs, formatDateTime as formatDate } from "@/lib/format";
 
 // The running-balance statement shared by every account-ledger lookup
 // modal (customers = Tally Phase 1 receivables, suppliers = Phase 2

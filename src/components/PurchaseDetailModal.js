@@ -1,25 +1,10 @@
 "use client";
 
-import { formatINR } from "@/lib/format";
+import { formatINR, formatDateTime } from "@/lib/format";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
-
-function formatDate(createdAt) {
-  const date = createdAt?.seconds
-    ? new Date(createdAt.seconds * 1000)
-    : createdAt
-    ? new Date(createdAt)
-    : new Date();
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 export default function PurchaseDetailModal({ isOpen, onClose, record }) {
   if (!record) return null;
@@ -48,7 +33,7 @@ export default function PurchaseDetailModal({ isOpen, onClose, record }) {
           </div>
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Date</p>
-            <p className="font-semibold text-ink-900 dark:text-ink-50">{formatDate(record.createdAt)}</p>
+            <p className="font-semibold text-ink-900 dark:text-ink-50">{formatDateTime(record.createdAt)}</p>
           </div>
           {!isReturn && (
             <>

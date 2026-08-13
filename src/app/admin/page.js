@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
-import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG } from "@/lib/format";
+import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG, formatDate } from "@/lib/format";
 import { parsePriceSheetWorkbook } from "@/lib/priceSheet";
 import EditProductModal from "@/components/EditProductModal";
 import PageHeader from "@/components/ui/PageHeader";
@@ -480,7 +480,7 @@ export default function AdminPage() {
                     <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
                     <Td>₹{formatINR(product.wholesale_price_per_kg ?? 0)}</Td>
                     <Td>{product.cost_price_per_kg != null ? `₹${formatINR(product.cost_price_per_kg)}` : <span className="text-warmgray-400">—</span>}</Td>
-                    <Td className="text-warmgray-500 dark:text-warmgray-400">{product.price_effective_date || "—"}</Td>
+                    <Td className="text-warmgray-500 dark:text-warmgray-400">{product.price_effective_date ? formatDate(product.price_effective_date) : "—"}</Td>
                     <Td>
                       {margin ? (
                         <Badge variant={margin.marginRs <= 0 ? "danger" : "success"} size="sm">

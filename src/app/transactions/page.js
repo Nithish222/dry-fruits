@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
-import { formatINR, roundKg, roundRs, computeProfit } from "@/lib/format";
+import { formatINR, roundKg, roundRs, computeProfit, formatDateTime } from "@/lib/format";
 import { readVoucherPostContext, writeVoucherPost } from "@/lib/accounting";
 import { buildReturnVoucherLines } from "@/lib/khataVouchers";
 import { getSystemAccounts } from "@/lib/systemAccounts";
@@ -416,7 +416,7 @@ export default function TransactionsPage() {
                 return (
                   <Tr key={tx.id}>
                     <Td className="font-medium text-ink-900 dark:text-ink-50">
-                      {tx.createdAt ? new Date(tx.createdAt.seconds * 1000).toLocaleString() : "N/A"}
+                      {formatDateTime(tx.createdAt)}
                     </Td>
                     <Td>
                       {tx.customer?.phoneNumber ? (

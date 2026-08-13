@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
-import { formatINR, roundRs } from "@/lib/format";
+import { formatINR, roundRs, formatDate } from "@/lib/format";
 import { seedChartOfAccounts, cancelVoucher, ACCOUNT_CATEGORIES } from "@/lib/accounting";
 import { seedOpeningInventoryBalance } from "@/lib/inventoryOpeningBalance";
 import { SYSTEM_LEDGER_NAMES } from "@/lib/systemAccounts";
@@ -438,7 +438,7 @@ export default function AccountsPage() {
                 vouchers.map((voucher) => (
                   <Tr key={voucher.id}>
                     <Td className="font-mono text-xs font-bold">{voucher.voucherNumber}</Td>
-                    <Td>{voucher.date}</Td>
+                    <Td>{formatDate(voucher.date)}</Td>
                     <Td className="capitalize">{voucher.voucherType}</Td>
                     <Td className="max-w-xs truncate">{voucher.narration || "—"}</Td>
                     <Td align="right" className="font-bold">

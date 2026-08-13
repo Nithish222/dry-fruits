@@ -22,6 +22,43 @@ export function formatINR(value) {
   });
 }
 
+// Accepts a Firestore Timestamp ({seconds}), a JS Date, or a "YYYY-MM-DD"
+// string. The string form is parsed as plain calendar-date parts, not
+// through Date's own string parsing (which reads "YYYY-MM-DD" as UTC
+// midnight and can render a day off depending on the reader's timezone) -
+// same defensive parsing DatePicker.js already uses for the same reason.
+function toJsDate(value) {
+  if (value instanceof Date) return value;
+  if (value?.seconds != null) return new Date(value.seconds * 1000);
+  if (typeof value === "string") {
+    const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (isoDateOnly) {
+      const [, y, m, d] = isoDateOnly;
+      return new Date(Number(y), Number(m) - 1, Number(d));
+    }
+    return new Date(value);
+  }
+  return null;
+}
+
+// This app's one date-display convention: DD/MM/YYYY.
+export function formatDate(value) {
+  const date = toJsDate(value);
+  if (!date || Number.isNaN(date.getTime())) return "N/A";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
+// DD/MM/YYYY plus a time, for values that carry one (Firestore Timestamps,
+// mainly) - the date half always matches formatDate exactly.
+export function formatDateTime(value) {
+  const date = toJsDate(value);
+  if (!date || Number.isNaN(date.getTime())) return "N/A";
+  const time = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  return `${formatDate(date)}, ${time}`;
+}
+
 // Weights are tracked in kg but entered/adjusted in gram increments, so plain
 // float arithmetic (e.g. repeated subtraction/addition) drifts into values
 // like 98.35000000000001. Round to gram precision (3 decimals) on every

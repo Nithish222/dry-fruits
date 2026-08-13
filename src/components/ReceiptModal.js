@@ -1,6 +1,6 @@
 "use client";
 
-import { formatINR } from "@/lib/format";
+import { formatINR, formatDateTime as formatDate } from "@/lib/format";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 
@@ -11,21 +11,6 @@ const DEFAULT_STORE = {
   phone: "+91 98765 43210",
   gstin: "33ABCDE1234F1Z5",
 };
-
-function formatDate(createdAt) {
-  const date = createdAt?.seconds
-    ? new Date(createdAt.seconds * 1000)
-    : createdAt
-    ? new Date(createdAt)
-    : new Date();
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }) {
   const store = { ...DEFAULT_STORE, ...storeInfo };

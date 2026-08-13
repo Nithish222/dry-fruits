@@ -4,25 +4,13 @@ import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatDateTime as formatDate } from "@/lib/format";
 import { recordCustomerPaymentWithVoucher, recordCustomerOpeningBalanceWithVoucher } from "@/lib/khataVouchers";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import LedgerStatement from "@/components/LedgerStatement";
 
 const HISTORY_DISPLAY_LIMIT = 20;
-
-function formatDate(createdAt) {
-  if (!createdAt) return "N/A";
-  const date = createdAt.seconds ? new Date(createdAt.seconds * 1000) : new Date(createdAt);
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 export default function CustomerLookupModal({ isOpen, onClose, onBillCustomer, initialCustomer }) {
   const { user } = useAuth();

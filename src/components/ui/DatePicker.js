@@ -175,7 +175,7 @@ export default function DatePicker({ value, onChange, min, max, "aria-label": ar
         inputMode="numeric"
         aria-label={ariaLabel}
         placeholder="DD/MM/YYYY"
-        value={isEditing ? digitsToMasked(digits) : selected ? selected.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : ""}
+        value={isEditing ? digitsToMasked(digits) : selected ? toDateString(selected).split("-").reverse().join("/") : ""}
         onFocus={(e) => {
           const initialDigits = dateStringToDigits(value);
           setIsEditing(true);

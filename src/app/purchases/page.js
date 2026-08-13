@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatDateTime } from "@/lib/format";
 import PurchaseDetailModal from "@/components/PurchaseDetailModal";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
@@ -115,7 +115,7 @@ export default function PurchaseHistoryPage() {
               filteredRecords.map((record) => (
                 <Tr key={record.id}>
                   <Td className="font-medium text-ink-900 dark:text-ink-50">
-                    {record.createdAt ? new Date(record.createdAt.seconds * 1000).toLocaleString() : "N/A"}
+                    {formatDateTime(record.createdAt)}
                   </Td>
                   <Td className="font-medium text-ink-900 dark:text-ink-50">{record.supplierName || "N/A"}</Td>
                   <Td>
