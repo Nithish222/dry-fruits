@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 const WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -71,11 +72,21 @@ export default function DatePicker({ value, onChange, min, max, "aria-label": ar
   const selected = parseDateString(value);
   const [cursor, setCursor] = useState(() => selected || new Date());
   const containerRef = useRef(null);
+  const popoverRef = useRef(null);
+  // Popover is portaled to <body> (see render below) so a modal's
+  // overflow-hidden panel can't clip it when the field sits near the
+  // bottom - it's positioned in fixed/viewport coordinates instead of
+  // relying on normal document flow.
+  const [coords, setCoords] = useState(null);
 
   useEffect(() => {
     if (!open) return;
     function handleClickOutside(event) {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target) &&
+        !(popoverRef.current && popoverRef.current.contains(event.target))
+      ) {
         setOpen(false);
         setView("days");
       }
@@ -93,6 +104,30 @@ export default function DatePicker({ value, onChange, min, max, "aria-label": ar
       document.removeEventListener("keydown", handleEscape);
     };
   }, [open]);
+
+  const POPOVER_WIDTH = 240;
+  const POPOVER_HEIGHT_ESTIMATE = 300;
+  useLayoutEffect(() => {
+    if (!open) return;
+    function updatePosition() {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUpward = spaceBelow < POPOVER_HEIGHT_ESTIMATE && rect.top > spaceBelow;
+      setCoords({
+        left: Math.min(Math.max(rect.left, 8), window.innerWidth - POPOVER_WIDTH - 8),
+        top: openUpward ? rect.top - 4 : rect.bottom + 4,
+        openUpward,
+      });
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, view]);
 
   const minDate = parseDateString(min);
   const maxDate = parseDateString(max);
@@ -196,8 +231,17 @@ export default function DatePicker({ value, onChange, min, max, "aria-label": ar
         className="w-[128px] text-xs font-semibold bg-warmgray-50 dark:bg-warmgray-800 border border-warmgray-200 dark:border-warmgray-700 rounded-md px-1.5 py-1 text-ink-900 dark:text-ink-50 focus:outline-none focus:ring-2 focus:ring-clay-400 whitespace-nowrap"
       />
 
-      {open && (
-        <div className="absolute z-20 mt-1 w-60 bg-white dark:bg-warmgray-900 border border-warmgray-200 dark:border-warmgray-700 rounded-xl shadow-lg p-3">
+      {open && coords && createPortal(
+        <div
+          ref={popoverRef}
+          style={{
+            position: "fixed",
+            top: coords.top,
+            left: coords.left,
+            width: POPOVER_WIDTH,
+            transform: coords.openUpward ? "translateY(-100%)" : undefined,
+          }}
+          className="z-[60] bg-white dark:bg-warmgray-900 border border-warmgray-200 dark:border-warmgray-700 rounded-xl shadow-lg p-3">
           {view === "days" && (
             <>
               <div className="flex items-center justify-between mb-2">
@@ -303,7 +347,8 @@ export default function DatePicker({ value, onChange, min, max, "aria-label": ar
               </div>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

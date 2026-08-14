@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { formatINR, roundKg, computeMargin, LOW_STOCK_THRESHOLD_KG, formatDate } from "@/lib/format";
@@ -13,6 +13,7 @@ import Badge from "@/components/ui/Badge";
 import Skeleton from "@/components/ui/Skeleton";
 import Modal from "@/components/ui/Modal";
 import DatePicker from "@/components/ui/DatePicker";
+import CategoryChipFilter from "@/components/ui/CategoryChipFilter";
 import { Trash2 } from "@/components/ui/icons";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 
@@ -55,13 +56,6 @@ export default function AdminPage() {
   const [tallyTo, setTallyTo] = useState(todayStr());
   const [exportingTally, setExportingTally] = useState(false);
   const [tallyExportError, setTallyExportError] = useState("");
-
-  // Mouse-drag-to-scroll for the category chip strip. Trackpad swipes and
-  // shift+wheel already work natively on any overflow-x-auto container -
-  // this only adds the click-and-drag gesture for plain mice, which browsers
-  // don't do for a generic <div> the way they do for e.g. <input type=range>.
-  const chipStripRef = useRef(null);
-  const dragState = useRef({ isDown: false, startX: 0, startScrollLeft: 0, moved: false });
 
   // Real-time listener instead of a one-shot fetch: Firestore serves the
   // cached snapshot instantly on (re)subscribe, so switching tabs and back
@@ -284,24 +278,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleChipMouseDown = (e) => {
-    dragState.current = { isDown: true, startX: e.pageX, startScrollLeft: chipStripRef.current?.scrollLeft ?? 0, moved: false };
-  };
-  const handleChipMouseMove = (e) => {
-    const el = chipStripRef.current;
-    if (!el || !dragState.current.isDown) return;
-    const dx = e.pageX - dragState.current.startX;
-    if (Math.abs(dx) > 3) dragState.current.moved = true;
-    el.scrollLeft = dragState.current.startScrollLeft - dx;
-  };
-  const handleChipMouseUpOrLeave = () => {
-    dragState.current.isDown = false;
-  };
-  const handleChipClick = (value) => {
-    if (dragState.current.moved) return; // was a drag, not a click
-    setCategoryFilter(value);
-  };
-
   const categoryCounts = products.reduce((acc, p) => {
     const category = (p.category || "").trim();
     if (category) acc[category] = (acc[category] || 0) + 1;
@@ -353,49 +329,14 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
-            {categoryList.length > 0 && (
-              <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
-                {/* Pinned - always visible, not part of the scrollable strip. */}
-                <button
-                  type="button"
-                  onClick={() => setCategoryFilter("")}
-                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-bold transition-colors ${
-                    categoryFilter === "" ? "bg-clay-800 text-white" : "bg-clay-50 dark:bg-clay-950/40 text-clay-800 dark:text-clay-300"
-                  }`}
-                >
-                  All ({products.length})
-                </button>
-
-                {/* Scrollable - clipped right where the search bar begins,
-                    with a fade on each edge: left toward the pinned All
-                    chip (where scrolled-past chips go), right toward search. */}
-                <div className="relative min-w-0 flex-1 max-w-xs">
-                  <div
-                    ref={chipStripRef}
-                    onMouseDown={handleChipMouseDown}
-                    onMouseMove={handleChipMouseMove}
-                    onMouseUp={handleChipMouseUpOrLeave}
-                    onMouseLeave={handleChipMouseUpOrLeave}
-                    className="flex gap-2 overflow-x-auto scrollbar-none py-1 cursor-grab active:cursor-grabbing select-none"
-                  >
-                    {categoryList.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() => handleChipClick(category)}
-                        className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-bold transition-colors ${
-                          categoryFilter === category ? "bg-clay-800 text-white" : "bg-clay-50 dark:bg-clay-950/40 text-clay-800 dark:text-clay-300"
-                        }`}
-                      >
-                        {category} ({categoryCounts[category]})
-                      </button>
-                    ))}
-                  </div>
-                  <div className="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-white dark:from-warmgray-900 to-transparent pointer-events-none" />
-                  <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white dark:from-warmgray-900 to-transparent pointer-events-none" />
-                </div>
-              </div>
-            )}
+            <CategoryChipFilter
+              categories={categoryList}
+              counts={categoryCounts}
+              totalCount={products.length}
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              className="flex-1 justify-end"
+            />
 
             <Input
               type="text"

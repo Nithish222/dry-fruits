@@ -16,12 +16,18 @@ import Card from "@/components/ui/Card";
 import Modal from "@/components/ui/Modal";
 import Badge from "@/components/ui/Badge";
 import Input from "@/components/ui/Input";
-import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
+import CategoryChipFilter from "@/components/ui/CategoryChipFilter";
+import SortMenu from "@/components/ui/SortMenu";
 import { ShoppingCart, X, RotateCcw, TrendingUp, TrendingDown, Loader2, Trash2 } from "@/components/ui/icons";
 
 const CATALOG_SKELETON_TILES = 8;
+const SORT_OPTIONS = [
+  { value: "popularity", label: "Most Popular" },
+  { value: "az", label: "Name (A-Z)" },
+  { value: "price", label: "Price (Low to High)" },
+];
 // Hides the native number-input spin buttons (Chrome/Safari/Edge via the
 // webkit pseudo-elements, Firefox via -moz-appearance) - Up/Down arrow keys
 // still work, wired explicitly in handlePriceInputArrowKey below.
@@ -350,9 +356,12 @@ export default function Home() {
     return () => clearTimeout(handler);
   }, [customerName, customerPhoneNumber, allCustomers]);
 
-  const categories = Array.from(
-    new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
-  ).sort();
+  const categoryCounts = products.reduce((acc, p) => {
+    const category = (p.category || "").trim();
+    if (category) acc[category] = (acc[category] || 0) + 1;
+    return acc;
+  }, {});
+  const categories = Object.keys(categoryCounts).sort();
   const filteredProducts = products
     .filter((product) => {
       const query = searchQuery.toLowerCase();
@@ -701,40 +710,25 @@ export default function Home() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
         <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
-          <div className="mb-6 flex gap-3">
+          <div className="mb-6 flex gap-3 items-center">
             <Input
               type="text"
               size="lg"
-              className="w-full font-semibold"
-              placeholder="Search products by name... (e.g., Cashew, Raisin)"
+              className="w-56 flex-shrink-0 font-semibold"
+              placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            {categories.length > 0 && (
-              <Select
-                size="lg"
-                className="flex-shrink-0 font-semibold"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                aria-label="Filter by category"
-              >
-                <option value="">All categories</option>
-                {categories.map((category) => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </Select>
-            )}
-            <Select
-              size="lg"
-              className="flex-shrink-0 font-semibold"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              aria-label="Sort by"
-            >
-              <option value="popularity">Most Popular</option>
-              <option value="az">Name (A-Z)</option>
-              <option value="price">Price (Low to High)</option>
-            </Select>
+            <CategoryChipFilter
+              categories={categories}
+              counts={categoryCounts}
+              totalCount={products.length}
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              className="flex-1"
+              stripClassName="max-w-[20rem]"
+            />
+            <SortMenu options={SORT_OPTIONS} value={sortBy} onChange={setSortBy} aria-label="Sort by" className="flex-shrink-0" />
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 pt-1">
@@ -807,6 +801,16 @@ export default function Home() {
             <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50">Current Bill</h2>
 
             <div className="flex items-center gap-2">
+              {cart.length > 0 && (
+                <button
+                  onClick={requestClearCart}
+                  aria-label="Clear order"
+                  title="Clear order"
+                  className="p-2 rounded-lg text-warmgray-400 hover:text-rust-600 dark:hover:text-rust-400 hover:bg-rust-50 dark:hover:bg-rust-950/40 flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
               <div className="bg-warmgray-100 dark:bg-warmgray-800 p-1 rounded-lg flex text-xs font-bold border border-warmgray-200 dark:border-warmgray-700">
                 <button
                   onClick={() => handlePriceTypeChange("retail")}
@@ -821,16 +825,6 @@ export default function Home() {
                   Wholesale
                 </button>
               </div>
-              {cart.length > 0 && (
-                <button
-                  onClick={requestClearCart}
-                  aria-label="Clear order"
-                  title="Clear order"
-                  className="p-2 rounded-lg text-warmgray-400 hover:text-rust-600 dark:hover:text-rust-400 hover:bg-rust-50 dark:hover:bg-rust-950/40 flex-shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
             </div>
           </div>
 
