@@ -468,14 +468,14 @@ export default function TransactionsPage() {
       </Card>
 
       <CustomerLookupModal
-        key={lookupCustomer?.id || "none"}
+        key={lookupCustomer?.id || "lookup-none"}
         isOpen={showCustomerLookup}
         initialCustomer={lookupCustomer}
         onClose={() => setShowCustomerLookup(false)}
       />
 
       <ReturnModal
-        key={returnTransaction?.id || "none"}
+        key={returnTransaction?.id || "return-none"}
         isOpen={!!returnTransaction}
         transaction={returnTransaction}
         returnedByItem={returnTransaction ? returnsByTransaction[returnTransaction.id]?.itemsReturned || {} : {}}
