@@ -73,7 +73,7 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm, custom
               : "border-warmgray-200 dark:border-warmgray-700 text-warmgray-600 dark:text-warmgray-400 hover:bg-warmgray-50 dark:hover:bg-warmgray-800"
           }`}
         >
-          GPay
+          UPI
         </button>
         <button
           onClick={() => setMode("credit")}
@@ -97,6 +97,7 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm, custom
             min="0"
             step="0.01"
             autoFocus
+            prefix="₹"
             value={amountReceived}
             onChange={(e) => setAmountReceived(e.target.value)}
             placeholder={`e.g. ${Math.ceil(total)}`}
@@ -114,7 +115,7 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm, custom
         </div>
       ) : mode === "gpay" ? (
         <div className="mb-5 p-4 rounded-xl bg-clay-50 dark:bg-clay-950/40 border border-clay-200 dark:border-clay-800 text-sm font-semibold text-clay-800 dark:text-clay-400">
-          Confirm ₹{formatINR(total)} received via GPay.
+          Confirm ₹{formatINR(total)} received via UPI.
         </div>
       ) : (
         <div className="mb-5">
@@ -126,6 +127,7 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm, custom
             min="0"
             step="0.01"
             autoFocus
+            prefix="₹"
             value={amountReceived}
             onChange={(e) => setAmountReceived(e.target.value)}
             placeholder="0 = full credit"
@@ -141,7 +143,7 @@ export default function PaymentModal({ isOpen, total, onClose, onConfirm, custom
           </div>
           {isCreditInvalid && amountReceivedNow >= total && (
             <p className="mt-2 text-xs font-semibold text-rust-600 dark:text-rust-400">
-              Amount received now must be less than the total - use Cash or GPay if there&apos;s no credit.
+              Amount received now must be less than the total - use Cash or UPI if there&apos;s no credit.
             </p>
           )}
         </div>

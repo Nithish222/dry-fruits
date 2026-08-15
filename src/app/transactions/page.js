@@ -351,16 +351,28 @@ export default function TransactionsPage() {
       <div className="mb-4 flex-shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Revenue</p>
-          <p className="text-2xl font-black text-clay-600 dark:text-clay-400 mt-1.5">₹{formatINR(todayStats.revenue)}</p>
+          {loading ? (
+            <Skeleton className="h-8 w-24 mt-1.5" />
+          ) : (
+            <p className="text-2xl font-black text-clay-600 dark:text-clay-400 mt-1.5">₹{formatINR(todayStats.revenue)}</p>
+          )}
         </div>
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Transactions</p>
-          <p className="text-2xl font-black text-ink-900 dark:text-ink-50 mt-1.5">{todayStats.count}</p>
+          {loading ? (
+            <Skeleton className="h-8 w-12 mt-1.5" />
+          ) : (
+            <p className="text-2xl font-black text-ink-900 dark:text-ink-50 mt-1.5">{todayStats.count}</p>
+          )}
         </div>
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Profit</p>
-          <p className="text-2xl font-black text-sage-600 dark:text-sage-400 mt-1.5">₹{formatINR(todayStats.profit)}</p>
-          {todayStats.missingCostCount > 0 && (
+          {loading ? (
+            <Skeleton className="h-8 w-24 mt-1.5" />
+          ) : (
+            <p className="text-2xl font-black text-sage-600 dark:text-sage-400 mt-1.5">₹{formatINR(todayStats.profit)}</p>
+          )}
+          {!loading && todayStats.missingCostCount > 0 && (
             <p className="text-[10px] font-semibold text-rust-600 dark:text-rust-400 mt-1">
               {todayStats.missingCostCount} item{todayStats.missingCostCount === 1 ? "" : "s"} missing cost price - profit may be overstated
             </p>
@@ -388,6 +400,7 @@ export default function TransactionsPage() {
               <Th>Total Items</Th>
               <Th>Price Mode</Th>
               <Th align="right">Total Amount</Th>
+              <Th align="right">Profit/Loss</Th>
               <Th>Status</Th>
               <Th align="right">Actions</Th>
             </THead>
@@ -400,13 +413,14 @@ export default function TransactionsPage() {
                     <Td><Skeleton className="h-4 w-10" /></Td>
                     <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
                     <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
+                    <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
                     <Td><Skeleton className="h-5 w-20 rounded-full" /></Td>
                     <Td align="right"><Skeleton className="h-8 w-20 ml-auto rounded-lg" /></Td>
                   </Tr>
                 ))
               ) : filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
+                  <td colSpan="8" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
                     {searchQuery ? "No matching transactions found." : "No transactions found."}
                   </td>
                 </tr>
@@ -414,6 +428,13 @@ export default function TransactionsPage() {
                 filteredTransactions.map((tx) => {
                   const returnInfo = returnsByTransaction[tx.id];
                   const returnStatus = getReturnStatus(tx, returnInfo);
+                  // Always from each item's costPriceAtSale snapshot (frozen onto
+                  // the transaction when it was checked out) - never the
+                  // product's current cost_price_per_kg, which may have since
+                  // changed and would misrepresent what this specific sale
+                  // actually earned.
+                  const { profit: txProfit, missingCostCount: txMissingCost } = computeProfit([tx]);
+                  const isLoss = txProfit < 0;
                   return (
                     <Tr key={tx.id}>
                       <Td className="font-medium text-ink-900 dark:text-ink-50">
@@ -440,6 +461,14 @@ export default function TransactionsPage() {
                       </Td>
                       <Td align="right" className="font-bold text-ink-900 dark:text-ink-50">
                         ₹{formatINR(tx.grandTotal)}
+                      </Td>
+                      <Td
+                        align="right"
+                        className={`font-bold ${isLoss ? "text-rust-600 dark:text-rust-400" : "text-sage-600 dark:text-sage-400"}`}
+                        title={txMissingCost > 0 ? `${txMissingCost} item${txMissingCost === 1 ? "" : "s"} missing a cost price at sale time - this figure may be overstated` : undefined}
+                      >
+                        {isLoss ? "−" : "+"}₹{formatINR(Math.abs(txProfit))}
+                        {txMissingCost > 0 && "*"}
                       </Td>
                       <Td>
                         {returnStatus === "full" && (
@@ -490,6 +519,8 @@ export default function TransactionsPage() {
               {filteredTransactions.map((tx) => {
                 const returnInfo = returnsByTransaction[tx.id];
                 const returnStatus = getReturnStatus(tx, returnInfo);
+                const { profit: txProfit, missingCostCount: txMissingCost } = computeProfit([tx]);
+                const isLoss = txProfit < 0;
                 return (
                   <div key={tx.id} className="px-6 py-4">
                     <div className="flex items-start justify-between gap-3">
@@ -501,7 +532,16 @@ export default function TransactionsPage() {
                       ) : (
                         <p className="font-medium text-ink-900 dark:text-ink-50">N/A</p>
                       )}
-                      <p className="font-bold text-ink-900 dark:text-ink-50 flex-shrink-0">₹{formatINR(tx.grandTotal)}</p>
+                      <div className="text-right flex-shrink-0">
+                        <p className="font-bold text-ink-900 dark:text-ink-50">₹{formatINR(tx.grandTotal)}</p>
+                        <p
+                          className={`text-xs font-semibold ${isLoss ? "text-rust-600 dark:text-rust-400" : "text-sage-600 dark:text-sage-400"}`}
+                          title={txMissingCost > 0 ? `${txMissingCost} item${txMissingCost === 1 ? "" : "s"} missing a cost price at sale time - this figure may be overstated` : undefined}
+                        >
+                          {isLoss ? "−" : "+"}₹{formatINR(Math.abs(txProfit))}
+                          {txMissingCost > 0 && "*"}
+                        </p>
+                      </div>
                     </div>
 
                     <p className="text-xs text-warmgray-400 mt-1">{formatDateTime(tx.createdAt)}</p>

@@ -172,6 +172,7 @@ export default function Home() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [sortBy, setSortBy] = useState("popularity"); // "popularity" | "az" | "price"
   const [productSalesCounts, setProductSalesCounts] = useState({}); // { [productId]: timesOrdered }
+  const [popularityLoading, setPopularityLoading] = useState(true);
   const [cart, setCart] = useState([]);
   const billPanelRef = useRef(null);
   const [priceType, setPriceType] = useState("retail");
@@ -246,6 +247,8 @@ export default function Home() {
         setProductSalesCounts(counts);
       } catch (error) {
         console.error("Error computing product popularity: ", error);
+      } finally {
+        setPopularityLoading(false);
       }
     }
     fetchPopularity();
@@ -334,6 +337,15 @@ export default function Home() {
   }, [customerName, customerPhoneNumber, showCustomerSuggestions, allCustomers]);
 
   useEffect(() => {
+    // Picking a suggestion fills both fields with an exact match, which
+    // would otherwise re-trigger this same debounced search and pop the
+    // dropdown back open right after selection - the click handler already
+    // hides it, so just skip re-searching while the fields still match
+    // what's currently selected.
+    if (selectedCustomer && customerName === selectedCustomer.name && customerPhoneNumber === selectedCustomer.phoneNumber) {
+      return;
+    }
+
     const nameQuery = customerName.trim().toLowerCase();
     const phoneQuery = customerPhoneNumber.trim().toLowerCase();
 
@@ -355,7 +367,7 @@ export default function Home() {
     }, 300); // Debounce search
 
     return () => clearTimeout(handler);
-  }, [customerName, customerPhoneNumber, allCustomers]);
+  }, [customerName, customerPhoneNumber, allCustomers, selectedCustomer]);
 
   const categoryCounts = products.reduce((acc, p) => {
     const category = (p.category || "").trim();
@@ -733,7 +745,7 @@ export default function Home() {
           </div>
 
           <div className="lg:flex-1 lg:overflow-y-auto pr-2 pt-1">
-            {loading ? (
+            {loading || (sortBy === "popularity" && popularityLoading) ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {Array.from({ length: CATALOG_SKELETON_TILES }).map((_, i) => (
                   <Skeleton key={i} className="h-40 rounded-2xl" />

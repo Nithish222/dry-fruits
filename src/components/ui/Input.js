@@ -14,11 +14,23 @@ const sizeStyles = {
   lg: "px-5 py-3.5 rounded-xl",
 };
 
-export default function Input({ label, id, size = "md", className, labelClassName, ...rest }) {
+// Left offset for the prefix glyph and the input's own left padding, per
+// size - kept as inline styles (not more px-*/pl-* utility classes) since
+// Tailwind's cascade order for two classes touching the same padding-left
+// property is generation-order-dependent, not source-order, so a pl-* meant
+// to override a size's own px-* can silently lose depending on where each
+// lands in the generated stylesheet.
+const prefixOffset = {
+  sm: { glyphLeft: "0.625rem", inputPadding: "1.5rem" },
+  md: { glyphLeft: "1rem", inputPadding: "2rem" },
+  lg: { glyphLeft: "1.25rem", inputPadding: "2.5rem" },
+};
+
+export default function Input({ label, id, size = "md", className, labelClassName, prefix, style, ...rest }) {
   const generatedId = useId();
   const inputId = id || (label ? generatedId : undefined);
 
-  const input = (
+  const inputEl = (
     <input
       id={inputId}
       className={clsx(
@@ -26,8 +38,24 @@ export default function Input({ label, id, size = "md", className, labelClassNam
         sizeStyles[size],
         className
       )}
+      style={prefix ? { ...style, paddingLeft: prefixOffset[size].inputPadding } : style}
       {...rest}
     />
+  );
+
+  const input = prefix ? (
+    <div className="relative">
+      <span
+        className="pointer-events-none absolute inset-y-0 flex items-center font-bold text-warmgray-400 dark:text-warmgray-500"
+        style={{ left: prefixOffset[size].glyphLeft }}
+        aria-hidden="true"
+      >
+        {prefix}
+      </span>
+      {inputEl}
+    </div>
+  ) : (
+    inputEl
   );
 
   if (!label) return input;

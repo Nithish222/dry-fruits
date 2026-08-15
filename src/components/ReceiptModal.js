@@ -1,21 +1,54 @@
 "use client";
 
-import { formatINR, formatDateTime as formatDate } from "@/lib/format";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
+import { formatINR, formatDateTime as formatDate, formatPaymentMode } from "@/lib/format";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 
+// Retail and wholesale bills go out under different registered names - the
+// wholesale one hasn't been provided yet, so it falls back to this default
+// until it is.
 const DEFAULT_STORE = {
   name: "Southern Traders",
   tagline: "Premium Dry Fruits & Nuts",
-  address: "123 Market Street, Chennai, TN 600001",
-  phone: "+91 98765 43210",
+  address: "175-E Masi St, opposite to Motta pillayar kovil, Madurai 625001",
+  phone: "+91 9655366676",
+  email: "support@srisouthern.in",
   gstin: "33ABCDE1234F1Z5",
 };
+
+const RETAIL_STORE_NAME = "Sri Southern Traders";
+
+const REVIEW_URL =
+  "https://www.google.com/maps/place/Sri+Southern+Traders/@9.9189159,78.1207228,17z/data=!3m1!4b1!4m6!3m5!1s0x3b00c59b5c64399d:0x6cc054c44d8c56b3!8m2!3d9.9189159!4d78.1232977!16s%2Fg%2F11fzf8mpbh?entry=ttu&g_ep=EgoyMDI2MDgxMi4wIKXMDSoASAFQAw%3D%3D";
 
 export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }) {
   const store = { ...DEFAULT_STORE, ...storeInfo };
 
+  // Generated once, not fetched from a third-party QR API - keeps the
+  // review link private to this page load and means the receipt still
+  // renders (sans QR) if that generation ever throws, rather than sending
+  // the URL out to render one. Runs before the transaction-null return
+  // since hooks can't follow an early return.
+  const [reviewQrDataUrl, setReviewQrDataUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(REVIEW_URL, { margin: 1, width: 160 })
+      .then((url) => {
+        if (!cancelled) setReviewQrDataUrl(url);
+      })
+      .catch((error) => console.error("Error generating review QR code: ", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!transaction) return null;
+
+  if (transaction.priceType === "retail" && !storeInfo?.name) {
+    store.name = RETAIL_STORE_NAME;
+  }
 
   const items = transaction.items || [];
   const grandTotal =
@@ -61,6 +94,7 @@ export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }
                 <p className="text-[10px] text-gray-600 mt-1">{store.address}</p>
               )}
               {store.phone && <p className="text-[10px] text-gray-600">Ph: {store.phone}</p>}
+              {store.email && <p className="text-[10px] text-gray-600">Email: {store.email}</p>}
               {store.gstin && <p className="text-[10px] text-gray-600">GSTIN: {store.gstin}</p>}
             </div>
 
@@ -72,12 +106,6 @@ export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }
               </span>
               <span>{formatDate(transaction.createdAt)}</span>
             </div>
-            {transaction.priceType && (
-              <div className="text-[10px] text-gray-700 uppercase mt-1">
-                Price Mode: {transaction.priceType}
-              </div>
-            )}
-
             <div className="border-t border-dashed border-gray-400 my-2" />
 
             <table className="w-full text-[10px]">
@@ -128,7 +156,7 @@ export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }
                 <div className="text-[10px] text-gray-700 space-y-0.5">
                   <div className="flex justify-between">
                     <span>Payment Mode</span>
-                    <span className="uppercase font-semibold">{transaction.payment.mode}</span>
+                    <span className="uppercase font-semibold">{formatPaymentMode(transaction.payment.mode)}</span>
                   </div>
                   {transaction.payment.mode === "cash" && (
                     <>
@@ -152,6 +180,19 @@ export default function ReceiptModal({ isOpen, onClose, transaction, storeInfo }
               <p>Thank you for shopping with us!</p>
               <p>Goods once sold will not be taken back.</p>
             </div>
+
+            {reviewQrDataUrl && (
+              <>
+                <div className="border-t border-dashed border-gray-400 my-3" />
+                <div className="text-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a
+                      data: URL, not a real image source next/image can
+                      optimize, and this only ever renders client-side */}
+                  <img src={reviewQrDataUrl} alt="QR code to leave a Google review" className="mx-auto" width={100} height={100} />
+                  <p className="text-[10px] text-gray-600 mt-1">Enjoyed shopping with us? Scan to leave a review!</p>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </Modal>
