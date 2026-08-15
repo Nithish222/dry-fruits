@@ -313,7 +313,7 @@ export default function AdminPage() {
       />
 
       <Card padding="p-6" className="w-full">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
           <div className="flex-shrink-0">
             <h2 className="text-2xl font-black text-ink-900 dark:text-ink-50 mb-1">Inventory</h2>
             <p className="text-warmgray-500 dark:text-warmgray-400 font-medium text-sm mb-2">Stock and price levels for all products. Click a row to edit it.</p>
@@ -328,20 +328,20 @@ export default function AdminPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+          <div className="flex flex-wrap items-center gap-3 lg:flex-1 min-w-0 lg:justify-end">
             <CategoryChipFilter
               categories={categoryList}
               counts={categoryCounts}
               totalCount={products.length}
               value={categoryFilter}
               onChange={setCategoryFilter}
-              className="flex-1 justify-end"
+              className="flex-1 min-w-[9rem] justify-end"
             />
 
             <Input
               type="text"
               size="md"
-              className="w-48 flex-shrink-0"
+              className="w-full sm:w-48 flex-shrink-0"
               placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -351,94 +351,152 @@ export default function AdminPage() {
         </div>
 
         {productsLoading ? (
-          <Table variant="compact">
-            <THead>
-              <Th>Product</Th>
-              <Th>Category</Th>
-              <Th>Retail ₹/kg</Th>
-              <Th>Wholesale ₹/kg</Th>
-              <Th>Cost ₹/kg</Th>
-              <Th>Price As Of</Th>
-              <Th>Margin</Th>
-              <Th>Stock (kg)</Th>
-              <Th>Status</Th>
-              <Th></Th>
-            </THead>
-            <tbody>
+          <>
+            <div className="hidden md:block">
+              <Table variant="compact">
+                <THead>
+                  <Th>Product</Th>
+                  <Th>Category</Th>
+                  <Th>Retail ₹/kg</Th>
+                  <Th>Wholesale ₹/kg</Th>
+                  <Th>Cost ₹/kg</Th>
+                  <Th>Price As Of</Th>
+                  <Th>Margin</Th>
+                  <Th>Stock (kg)</Th>
+                  <Th>Status</Th>
+                  <Th></Th>
+                </THead>
+                <tbody>
+                  {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                    <Tr key={i}>
+                      <Td><Skeleton className="h-4 w-32" /></Td>
+                      <Td><Skeleton className="h-4 w-16" /></Td>
+                      <Td><Skeleton className="h-4 w-14" /></Td>
+                      <Td><Skeleton className="h-4 w-14" /></Td>
+                      <Td><Skeleton className="h-4 w-14" /></Td>
+                      <Td><Skeleton className="h-4 w-16" /></Td>
+                      <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
+                      <Td><Skeleton className="h-4 w-10" /></Td>
+                      <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
+                      <Td><Skeleton className="h-7 w-7 rounded-md" /></Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+            <div className="md:hidden divide-y divide-warmgray-100 dark:divide-warmgray-800">
               {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                <Tr key={i}>
-                  <Td><Skeleton className="h-4 w-32" /></Td>
-                  <Td><Skeleton className="h-4 w-16" /></Td>
-                  <Td><Skeleton className="h-4 w-14" /></Td>
-                  <Td><Skeleton className="h-4 w-14" /></Td>
-                  <Td><Skeleton className="h-4 w-14" /></Td>
-                  <Td><Skeleton className="h-4 w-16" /></Td>
-                  <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
-                  <Td><Skeleton className="h-4 w-10" /></Td>
-                  <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
-                  <Td><Skeleton className="h-7 w-7 rounded-md" /></Td>
-                </Tr>
+                <div key={i} className="py-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-7 w-7 rounded-md" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </Table>
+            </div>
+          </>
         ) : products.length === 0 ? (
           <div className="text-center py-10 text-warmgray-400 font-medium text-sm">No products found.</div>
         ) : filteredProducts.length === 0 ? (
           <div className="text-center py-10 text-warmgray-400 font-medium text-sm">No products match your search or filter.</div>
         ) : (
-          <Table variant="compact">
-            <THead>
-              <Th>Product</Th>
-              <Th>Category</Th>
-              <Th>Retail ₹/kg</Th>
-              <Th>Wholesale ₹/kg</Th>
-              <Th>Cost ₹/kg</Th>
-              <Th>Price As Of</Th>
-              <Th>Margin</Th>
-              <Th>Stock (kg)</Th>
-              <Th>Status</Th>
-              <Th></Th>
-            </THead>
-            <tbody>
+          <>
+            <div className="hidden md:block">
+              <Table variant="compact">
+                <THead>
+                  <Th>Product</Th>
+                  <Th>Category</Th>
+                  <Th>Retail ₹/kg</Th>
+                  <Th>Wholesale ₹/kg</Th>
+                  <Th>Cost ₹/kg</Th>
+                  <Th>Price As Of</Th>
+                  <Th>Margin</Th>
+                  <Th>Stock (kg)</Th>
+                  <Th>Status</Th>
+                  <Th></Th>
+                </THead>
+                <tbody>
+                  {filteredProducts.map((product) => {
+                    const stock = product.stock_kg ?? 0;
+                    const isLow = stock < LOW_STOCK_THRESHOLD_KG;
+                    const margin = computeMargin(product.retail_price_per_kg ?? 0, product.cost_price_per_kg);
+
+                    return (
+                      <Tr
+                        key={product.id}
+                        onClick={() => openEditModal(product)}
+                        className="cursor-pointer"
+                      >
+                        <Td className="font-semibold text-ink-900 dark:text-ink-50">
+                          {product.name}
+                          {product.tamil_name && (
+                            <span className="block text-xs font-normal text-warmgray-400">{product.tamil_name}</span>
+                          )}
+                        </Td>
+                        <Td className="text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
+                        <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
+                        <Td>₹{formatINR(product.wholesale_price_per_kg ?? 0)}</Td>
+                        <Td>{product.cost_price_per_kg != null ? `₹${formatINR(product.cost_price_per_kg)}` : <span className="text-warmgray-400">—</span>}</Td>
+                        <Td className="text-warmgray-500 dark:text-warmgray-400">{product.price_effective_date ? formatDate(product.price_effective_date) : "—"}</Td>
+                        <Td>
+                          {margin ? (
+                            <Badge variant={margin.marginRs <= 0 ? "danger" : "success"} size="sm">
+                              ₹{formatINR(margin.marginRs)}
+                              {margin.marginPct != null ? ` (${margin.marginPct.toFixed(0)}%)` : ""}
+                            </Badge>
+                          ) : (
+                            <span className="text-warmgray-400 text-sm">—</span>
+                          )}
+                        </Td>
+                        <Td>{stock}</Td>
+                        <Td>
+                          <Badge variant={isLow ? "danger" : "success"} size="sm">
+                            {isLow ? "⚠ Low Stock" : "In Stock"}
+                          </Badge>
+                        </Td>
+                        <Td>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteProduct(product);
+                            }}
+                            disabled={deletingId === product.id}
+                            aria-label={`Delete ${product.name}`}
+                            className="p-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </div>
+
+            <div className="md:hidden divide-y divide-warmgray-100 dark:divide-warmgray-800">
               {filteredProducts.map((product) => {
                 const stock = product.stock_kg ?? 0;
                 const isLow = stock < LOW_STOCK_THRESHOLD_KG;
                 const margin = computeMargin(product.retail_price_per_kg ?? 0, product.cost_price_per_kg);
 
                 return (
-                  <Tr
+                  <div
                     key={product.id}
                     onClick={() => openEditModal(product)}
-                    className="cursor-pointer"
+                    className="py-4 cursor-pointer active:bg-warmgray-50 dark:active:bg-warmgray-800/40 transition-colors -mx-6 px-6"
                   >
-                    <Td className="font-semibold text-ink-900 dark:text-ink-50">
-                      {product.name}
-                      {product.tamil_name && (
-                        <span className="block text-xs font-normal text-warmgray-400">{product.tamil_name}</span>
-                      )}
-                    </Td>
-                    <Td className="text-warmgray-500 dark:text-warmgray-400">{product.category || "—"}</Td>
-                    <Td>₹{formatINR(product.retail_price_per_kg ?? 0)}</Td>
-                    <Td>₹{formatINR(product.wholesale_price_per_kg ?? 0)}</Td>
-                    <Td>{product.cost_price_per_kg != null ? `₹${formatINR(product.cost_price_per_kg)}` : <span className="text-warmgray-400">—</span>}</Td>
-                    <Td className="text-warmgray-500 dark:text-warmgray-400">{product.price_effective_date ? formatDate(product.price_effective_date) : "—"}</Td>
-                    <Td>
-                      {margin ? (
-                        <Badge variant={margin.marginRs <= 0 ? "danger" : "success"} size="sm">
-                          ₹{formatINR(margin.marginRs)}
-                          {margin.marginPct != null ? ` (${margin.marginPct.toFixed(0)}%)` : ""}
-                        </Badge>
-                      ) : (
-                        <span className="text-warmgray-400 text-sm">—</span>
-                      )}
-                    </Td>
-                    <Td>{stock}</Td>
-                    <Td>
-                      <Badge variant={isLow ? "danger" : "success"} size="sm">
-                        {isLow ? "⚠ Low Stock" : "In Stock"}
-                      </Badge>
-                    </Td>
-                    <Td>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink-900 dark:text-ink-50 truncate">{product.name}</p>
+                        {product.tamil_name && <p className="text-xs text-warmgray-400 truncate">{product.tamil_name}</p>}
+                        <p className="text-xs text-warmgray-500 dark:text-warmgray-400 mt-0.5">{product.category || "—"}</p>
+                      </div>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -447,16 +505,52 @@ export default function AdminPage() {
                         }}
                         disabled={deletingId === product.id}
                         aria-label={`Delete ${product.name}`}
-                        className="p-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors"
+                        className="p-1.5 -mr-1.5 -mt-1.5 rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-950/50 hover:text-rust-700 dark:hover:text-rust-400 disabled:opacity-50 transition-colors flex-shrink-0"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                    </Td>
-                  </Tr>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                      <Badge variant={isLow ? "danger" : "success"} size="sm">
+                        {isLow ? "⚠ Low Stock" : "In Stock"}
+                      </Badge>
+                      {margin && (
+                        <Badge variant={margin.marginRs <= 0 ? "danger" : "success"} size="sm">
+                          ₹{formatINR(margin.marginRs)}
+                          {margin.marginPct != null ? ` (${margin.marginPct.toFixed(0)}%)` : ""}
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mt-3 pt-3 border-t border-warmgray-100 dark:border-warmgray-700 text-sm">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400">Retail ₹/kg</p>
+                        <p className="font-semibold text-ink-900 dark:text-ink-50">₹{formatINR(product.retail_price_per_kg ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400">Wholesale ₹/kg</p>
+                        <p className="font-semibold text-ink-900 dark:text-ink-50">₹{formatINR(product.wholesale_price_per_kg ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400">Cost ₹/kg</p>
+                        <p className="font-semibold text-ink-900 dark:text-ink-50">
+                          {product.cost_price_per_kg != null ? `₹${formatINR(product.cost_price_per_kg)}` : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-warmgray-400">Stock</p>
+                        <p className="font-semibold text-ink-900 dark:text-ink-50">{stock} kg</p>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-warmgray-400 mt-2.5">
+                      Priced as of {product.price_effective_date ? formatDate(product.price_effective_date) : "—"}
+                    </p>
+                  </div>
                 );
               })}
-            </tbody>
-          </Table>
+            </div>
+          </>
         )}
       </Card>
 

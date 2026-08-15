@@ -16,6 +16,7 @@ import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import Skeleton from "@/components/ui/Skeleton";
 import ToggleGroup from "@/components/ui/ToggleGroup";
+import MenuToggle from "@/components/ui/MenuToggle";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
@@ -320,7 +321,7 @@ export default function AccountsPage() {
         title="Accounting"
         subtitle="Chart of Accounts, vouchers, Trial Balance, and P&L"
         className="flex-shrink-0"
-        actions={<ToggleGroup options={TAB_OPTIONS} value={activeTab} onChange={setActiveTab} />}
+        actions={<MenuToggle options={TAB_OPTIONS} value={activeTab} onChange={setActiveTab} aria-label="Switch section" className="[&_button]:p-2" />}
       />
 
       {activeTab === "chart" && (
@@ -409,47 +410,96 @@ export default function AccountsPage() {
 
       {activeTab === "vouchers" && (
         <Card padding="p-0" className="overflow-hidden">
-          <Table variant="comfortable">
-            <THead>
-              <Th>Voucher No.</Th>
-              <Th>Date</Th>
-              <Th>Type</Th>
-              <Th>Narration</Th>
-              <Th align="right">Amount</Th>
-              <Th>Status</Th>
-              <Th />
-            </THead>
-            <tbody>
-              {loadingVouchers ? (
-                Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                  <Tr key={i}>
-                    <Td colSpan="7">
-                      <Skeleton className="h-4 w-full" />
-                    </Td>
-                  </Tr>
-                ))
-              ) : vouchers.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
-                    No vouchers posted yet.
-                  </td>
-                </tr>
-              ) : (
-                vouchers.map((voucher) => (
-                  <Tr key={voucher.id}>
-                    <Td className="font-mono text-xs font-bold">{voucher.voucherNumber}</Td>
-                    <Td>{formatDate(voucher.date)}</Td>
-                    <Td className="capitalize">{voucher.voucherType}</Td>
-                    <Td className="max-w-xs truncate">{voucher.narration || "—"}</Td>
-                    <Td align="right" className="font-bold">
-                      ₹{formatINR(voucher.totalAmount)}
-                    </Td>
-                    <Td>
+          <div className="hidden md:block">
+            <Table variant="comfortable">
+              <THead>
+                <Th>Voucher No.</Th>
+                <Th>Date</Th>
+                <Th>Type</Th>
+                <Th>Narration</Th>
+                <Th align="right">Amount</Th>
+                <Th>Status</Th>
+                <Th />
+              </THead>
+              <tbody>
+                {loadingVouchers ? (
+                  Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                    <Tr key={i}>
+                      <Td colSpan="7">
+                        <Skeleton className="h-4 w-full" />
+                      </Td>
+                    </Tr>
+                  ))
+                ) : vouchers.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
+                      No vouchers posted yet.
+                    </td>
+                  </tr>
+                ) : (
+                  vouchers.map((voucher) => (
+                    <Tr key={voucher.id}>
+                      <Td className="font-mono text-xs font-bold">{voucher.voucherNumber}</Td>
+                      <Td>{formatDate(voucher.date)}</Td>
+                      <Td className="capitalize">{voucher.voucherType}</Td>
+                      <Td className="max-w-xs truncate">{voucher.narration || "—"}</Td>
+                      <Td align="right" className="font-bold">
+                        ₹{formatINR(voucher.totalAmount)}
+                      </Td>
+                      <Td>
+                        <Badge variant={voucher.status === "active" ? "success" : "neutral"} size="sm">
+                          {voucher.status}
+                        </Badge>
+                      </Td>
+                      <Td align="right">
+                        {voucher.status === "active" && (
+                          <button
+                            onClick={() => setCancelTarget(voucher)}
+                            aria-label="Cancel voucher"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-rust-600 dark:text-rust-400 hover:underline"
+                          >
+                            <Ban className="w-3.5 h-3.5" /> Cancel
+                          </button>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </Table>
+          </div>
+
+          <div className="md:hidden">
+            {loadingVouchers ? (
+              <div className="divide-y divide-warmgray-100 dark:divide-warmgray-700">
+                {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                  <div key={i} className="px-6 py-4">
+                    <Skeleton className="h-4 w-full" />
+                  </div>
+                ))}
+              </div>
+            ) : vouchers.length === 0 ? (
+              <div className="px-6 py-10 text-warmgray-500 dark:text-warmgray-400">No vouchers posted yet.</div>
+            ) : (
+              <div className="divide-y divide-warmgray-100 dark:divide-warmgray-700">
+                {vouchers.map((voucher) => (
+                  <div key={voucher.id} className="px-6 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink-900 dark:text-ink-50 capitalize">{voucher.voucherType}</p>
+                        <p className="text-xs text-warmgray-400 font-mono">{voucher.voucherNumber} &middot; {formatDate(voucher.date)}</p>
+                      </div>
+                      <p className="font-bold text-ink-900 dark:text-ink-50 flex-shrink-0">₹{formatINR(voucher.totalAmount)}</p>
+                    </div>
+
+                    {voucher.narration && (
+                      <p className="text-sm text-warmgray-500 dark:text-warmgray-400 mt-2 line-clamp-2">{voucher.narration}</p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3 mt-2.5">
                       <Badge variant={voucher.status === "active" ? "success" : "neutral"} size="sm">
                         {voucher.status}
                       </Badge>
-                    </Td>
-                    <Td align="right">
                       {voucher.status === "active" && (
                         <button
                           onClick={() => setCancelTarget(voucher)}
@@ -459,12 +509,12 @@ export default function AccountsPage() {
                           <Ban className="w-3.5 h-3.5" /> Cancel
                         </button>
                       )}
-                    </Td>
-                  </Tr>
-                ))
-              )}
-            </tbody>
-          </Table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
       )}
 

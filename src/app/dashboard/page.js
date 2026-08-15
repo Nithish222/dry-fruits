@@ -12,7 +12,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Skeleton from "@/components/ui/Skeleton";
 import Modal from "@/components/ui/Modal";
-import ToggleGroup from "@/components/ui/ToggleGroup";
+import MenuToggle from "@/components/ui/MenuToggle";
 import RangeGranularityPicker from "@/components/ui/RangeGranularityPicker";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 import { TrendingUp, Package, PackageCheck, Award, Percent, PieChart, Maximize2 } from "@/components/ui/icons";
@@ -326,13 +326,14 @@ function BreakdownPieChart({
           <PieChart className="w-4 h-4 text-warmgray-400 flex-shrink-0" />
           <h2 className="text-xs font-bold text-ink-900 dark:text-ink-50 tracking-wide uppercase truncate">Top Sellers</h2>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <ToggleGroup
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <ExpandButton label="Top Sellers" onExpand={onExpand} />
+          <MenuToggle
             options={[{ value: "products", label: "Products" }, { value: "categories", label: "Categories" }]}
             value={groupMode}
             onChange={onGroupChange}
+            aria-label="Switch breakdown grouping"
           />
-          <ExpandButton label="Top Sellers" onExpand={onExpand} />
         </div>
       </div>
 
@@ -693,7 +694,7 @@ export default function DashboardPage() {
     <main className="p-6 md:p-8 h-full flex flex-col w-full bg-cream-50 dark:bg-cream-950 min-h-screen transition-colors duration-300">
       <PageHeader title="Owner Dashboard" subtitle="Today's performance at a glance" className="flex-shrink-0" />
 
-      <div className="mb-6 flex-shrink-0 grid grid-cols-2 lg:grid-cols-5 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
+      <div className="mb-6 flex-shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Revenue</p>
           {loading ? (
@@ -743,7 +744,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <>
             <Card padding="p-5" className="flex-shrink-0">
@@ -794,7 +795,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card padding="p-0" className="overflow-hidden">
           <div className="px-6 py-4 border-b border-warmgray-100 dark:border-warmgray-700 flex items-center gap-2">
             <Award className="w-4 h-4 text-warmgray-400" />
@@ -817,7 +818,7 @@ export default function DashboardPage() {
                 ))
               ) : today.topSellers.length === 0 ? (
                 <tr>
-                  <td colSpan="3" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
+                  <td colSpan="3" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
                     No sales yet today.
                   </td>
                 </tr>

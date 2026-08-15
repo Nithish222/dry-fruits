@@ -348,7 +348,7 @@ export default function TransactionsPage() {
         }
       />
 
-      <div className="mb-4 flex-shrink-0 grid grid-cols-3 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
+      <div className="mb-4 flex-shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-px rounded-xl bg-warmgray-200 dark:bg-warmgray-700 overflow-hidden">
         <div className="bg-warmgray-50 dark:bg-warmgray-800/50 px-5 py-5">
           <p className="text-xs font-bold uppercase tracking-wide text-warmgray-500 dark:text-warmgray-400">Today&apos;s Revenue</p>
           <p className="text-2xl font-black text-clay-600 dark:text-clay-400 mt-1.5">₹{formatINR(todayStats.revenue)}</p>
@@ -380,91 +380,157 @@ export default function TransactionsPage() {
       </div>
 
       <Card padding="p-0" className="overflow-hidden flex-shrink-0">
-        <Table variant="comfortable">
-          <THead>
-            <Th>Date</Th>
-            <Th>Customer</Th>
-            <Th>Total Items</Th>
-            <Th>Price Mode</Th>
-            <Th align="right">Total Amount</Th>
-            <Th>Status</Th>
-            <Th align="right">Actions</Th>
-          </THead>
-          <tbody>
-            {loading ? (
-              Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                <Tr key={i}>
-                  <Td><Skeleton className="h-4 w-28" /></Td>
-                  <Td><Skeleton className="h-4 w-32" /></Td>
-                  <Td><Skeleton className="h-4 w-10" /></Td>
-                  <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
-                  <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
-                  <Td><Skeleton className="h-5 w-20 rounded-full" /></Td>
-                  <Td align="right"><Skeleton className="h-8 w-20 ml-auto rounded-lg" /></Td>
-                </Tr>
-              ))
-            ) : filteredTransactions.length === 0 ? (
-              <tr>
-                <td colSpan="7" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
-                  {searchQuery ? "No matching transactions found." : "No transactions found."}
-                </td>
-              </tr>
-            ) : (
-              filteredTransactions.map((tx) => {
+        <div className="hidden md:block">
+          <Table variant="comfortable">
+            <THead>
+              <Th>Date</Th>
+              <Th>Customer</Th>
+              <Th>Total Items</Th>
+              <Th>Price Mode</Th>
+              <Th align="right">Total Amount</Th>
+              <Th>Status</Th>
+              <Th align="right">Actions</Th>
+            </THead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                  <Tr key={i}>
+                    <Td><Skeleton className="h-4 w-28" /></Td>
+                    <Td><Skeleton className="h-4 w-32" /></Td>
+                    <Td><Skeleton className="h-4 w-10" /></Td>
+                    <Td><Skeleton className="h-5 w-16 rounded-full" /></Td>
+                    <Td align="right"><Skeleton className="h-4 w-16 ml-auto" /></Td>
+                    <Td><Skeleton className="h-5 w-20 rounded-full" /></Td>
+                    <Td align="right"><Skeleton className="h-8 w-20 ml-auto rounded-lg" /></Td>
+                  </Tr>
+                ))
+              ) : filteredTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
+                    {searchQuery ? "No matching transactions found." : "No transactions found."}
+                  </td>
+                </tr>
+              ) : (
+                filteredTransactions.map((tx) => {
+                  const returnInfo = returnsByTransaction[tx.id];
+                  const returnStatus = getReturnStatus(tx, returnInfo);
+                  return (
+                    <Tr key={tx.id}>
+                      <Td className="font-medium text-ink-900 dark:text-ink-50">
+                        {formatDateTime(tx.createdAt)}
+                      </Td>
+                      <Td>
+                        {tx.customer?.phoneNumber ? (
+                          <button
+                            onClick={() => openCustomerLookup(tx.customer)}
+                            className="text-left hover:underline"
+                          >
+                            <p className="font-medium text-ink-900 dark:text-ink-50">{tx.customer?.name || "N/A"}</p>
+                            <p className="text-xs text-warmgray-400">{tx.customer?.phoneNumber}</p>
+                          </button>
+                        ) : (
+                          <p className="font-medium text-ink-900 dark:text-ink-50">N/A</p>
+                        )}
+                      </Td>
+                      <Td>{tx.items.length}</Td>
+                      <Td>
+                        <Badge variant={tx.priceType === "retail" ? "success" : "info"} size="sm">
+                          {tx.priceType}
+                        </Badge>
+                      </Td>
+                      <Td align="right" className="font-bold text-ink-900 dark:text-ink-50">
+                        ₹{formatINR(tx.grandTotal)}
+                      </Td>
+                      <Td>
+                        {returnStatus === "full" && (
+                          <Badge variant="danger" size="sm">Fully Returned</Badge>
+                        )}
+                        {returnStatus === "partial" && (
+                          <Badge variant="warning" size="sm">Partially Returned</Badge>
+                        )}
+                      </Td>
+                      <Td align="right">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setReturnTransaction(tx)}
+                          disabled={returnStatus === "full"}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Return
+                        </Button>
+                      </Td>
+                    </Tr>
+                  );
+                })
+              )}
+            </tbody>
+          </Table>
+        </div>
+
+        <div className="md:hidden">
+          {loading ? (
+            <div className="divide-y divide-warmgray-100 dark:divide-warmgray-700">
+              {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                <div key={i} className="px-6 py-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <Skeleton className="h-8 w-24 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          ) : filteredTransactions.length === 0 ? (
+            <div className="px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
+              {searchQuery ? "No matching transactions found." : "No transactions found."}
+            </div>
+          ) : (
+            <div className="divide-y divide-warmgray-100 dark:divide-warmgray-700">
+              {filteredTransactions.map((tx) => {
                 const returnInfo = returnsByTransaction[tx.id];
                 const returnStatus = getReturnStatus(tx, returnInfo);
                 return (
-                  <Tr key={tx.id}>
-                    <Td className="font-medium text-ink-900 dark:text-ink-50">
-                      {formatDateTime(tx.createdAt)}
-                    </Td>
-                    <Td>
+                  <div key={tx.id} className="px-6 py-4">
+                    <div className="flex items-start justify-between gap-3">
                       {tx.customer?.phoneNumber ? (
-                        <button
-                          onClick={() => openCustomerLookup(tx.customer)}
-                          className="text-left hover:underline"
-                        >
-                          <p className="font-medium text-ink-900 dark:text-ink-50">{tx.customer?.name || "N/A"}</p>
+                        <button onClick={() => openCustomerLookup(tx.customer)} className="text-left min-w-0">
+                          <p className="font-medium text-ink-900 dark:text-ink-50 truncate hover:underline">{tx.customer?.name || "N/A"}</p>
                           <p className="text-xs text-warmgray-400">{tx.customer?.phoneNumber}</p>
                         </button>
                       ) : (
                         <p className="font-medium text-ink-900 dark:text-ink-50">N/A</p>
                       )}
-                    </Td>
-                    <Td>{tx.items.length}</Td>
-                    <Td>
+                      <p className="font-bold text-ink-900 dark:text-ink-50 flex-shrink-0">₹{formatINR(tx.grandTotal)}</p>
+                    </div>
+
+                    <p className="text-xs text-warmgray-400 mt-1">{formatDateTime(tx.createdAt)}</p>
+
+                    <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                       <Badge variant={tx.priceType === "retail" ? "success" : "info"} size="sm">
                         {tx.priceType}
                       </Badge>
-                    </Td>
-                    <Td align="right" className="font-bold text-ink-900 dark:text-ink-50">
-                      ₹{formatINR(tx.grandTotal)}
-                    </Td>
-                    <Td>
-                      {returnStatus === "full" && (
-                        <Badge variant="danger" size="sm">Fully Returned</Badge>
-                      )}
-                      {returnStatus === "partial" && (
-                        <Badge variant="warning" size="sm">Partially Returned</Badge>
-                      )}
-                    </Td>
-                    <Td align="right">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setReturnTransaction(tx)}
-                        disabled={returnStatus === "full"}
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Return
-                      </Button>
-                    </Td>
-                  </Tr>
+                      <Badge variant="neutral" size="sm">{tx.items.length} item{tx.items.length === 1 ? "" : "s"}</Badge>
+                      {returnStatus === "full" && <Badge variant="danger" size="sm">Fully Returned</Badge>}
+                      {returnStatus === "partial" && <Badge variant="warning" size="sm">Partially Returned</Badge>}
+                    </div>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-3 w-full"
+                      onClick={() => setReturnTransaction(tx)}
+                      disabled={returnStatus === "full"}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Return
+                    </Button>
+                  </div>
                 );
-              })
-            )}
-          </tbody>
-        </Table>
+              })}
+            </div>
+          )}
+        </div>
       </Card>
 
       <CustomerLookupModal

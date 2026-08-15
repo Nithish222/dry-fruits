@@ -62,7 +62,7 @@ function LedgerList({ title, columnLabel, rows, loading, emptyMessage, onRowClic
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="2" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
+              <td colSpan="2" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
                 {emptyMessage}
               </td>
             </tr>
@@ -214,7 +214,7 @@ export default function TallyPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <LedgerList
               title="Receivables"
               columnLabel="Customer"
