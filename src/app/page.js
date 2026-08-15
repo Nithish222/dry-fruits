@@ -708,8 +708,8 @@ export default function Home() {
         }
       />
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
-        <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-12 lg:flex-1 gap-6 lg:min-h-0">
+        <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col lg:min-h-0">
           <div className="mb-6 flex flex-wrap gap-3 items-center">
             <Input
               type="text"
@@ -731,7 +731,7 @@ export default function Home() {
             <SortMenu options={SORT_OPTIONS} value={sortBy} onChange={setSortBy} aria-label="Sort by" className="flex-shrink-0" />
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-2 pt-1">
+          <div className="lg:flex-1 lg:overflow-y-auto pr-2 pt-1">
             {loading ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {Array.from({ length: CATALOG_SKELETON_TILES }).map((_, i) => (
@@ -796,7 +796,7 @@ export default function Home() {
           </div>
         </Card>
 
-        <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0 overflow-hidden">
+        <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col lg:min-h-0 overflow-hidden">
           <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex flex-wrap justify-between items-center gap-2">
             <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50 whitespace-nowrap">Current Bill</h2>
 
@@ -828,9 +828,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-cream-50 dark:bg-cream-950">
+          <div className="lg:flex-1 lg:overflow-y-auto p-5 space-y-4 bg-cream-50 dark:bg-cream-950">
             {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-warmgray-300 dark:text-warmgray-700">
+              <div className="py-10 lg:h-full lg:py-0 flex flex-col items-center justify-center text-warmgray-300 dark:text-warmgray-700">
                 <ShoppingCart className="w-12 h-12 mb-2" strokeWidth={1.5} />
                 <p className="font-medium text-sm text-warmgray-400">Tap products to start billing</p>
               </div>
