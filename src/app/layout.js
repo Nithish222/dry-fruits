@@ -13,7 +13,7 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: "Dry Fruits POS",
+  title: "Southern Traders POS",
   description: "Real-time billing and inventory",
   appleWebApp: {
     capable: true,

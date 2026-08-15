@@ -26,7 +26,7 @@ export default function LoginPage() { // No functional change, just for consiste
     <div className="flex items-center justify-center min-h-screen bg-cream-50 dark:bg-cream-950">
       <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-warmgray-900 rounded-2xl shadow-lg">
         <h1 className="text-title font-black text-center text-ink-900 dark:text-ink-50">
-          POS System Login
+          Southern Traders Login
         </h1>
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
