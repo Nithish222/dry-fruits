@@ -710,11 +710,11 @@ export default function Home() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
         <Card padding="p-6" className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
-          <div className="mb-6 flex gap-3 items-center">
+          <div className="mb-6 flex flex-wrap gap-3 items-center">
             <Input
               type="text"
               size="lg"
-              className="w-56 flex-shrink-0 font-semibold"
+              className="w-full sm:w-56 flex-shrink-0 font-semibold"
               placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -725,7 +725,7 @@ export default function Home() {
               totalCount={products.length}
               value={categoryFilter}
               onChange={setCategoryFilter}
-              className="flex-1"
+              className="flex-1 min-w-[9rem]"
               stripClassName="max-w-[20rem]"
             />
             <SortMenu options={SORT_OPTIONS} value={sortBy} onChange={setSortBy} aria-label="Sort by" className="flex-shrink-0" />
@@ -784,8 +784,8 @@ export default function Home() {
                         <p className="text-xs font-normal text-warmgray-400 truncate">{product.category}</p>
                       )}
 
-                      <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex items-baseline gap-1">
-                        <span className="text-xl font-black text-clay-800 dark:text-clay-400 tabular-nums">₹{formatINR(displayPrice)}</span>
+                      <div className="mt-auto pt-3 border-t border-warmgray-100 dark:border-warmgray-700 flex flex-wrap items-baseline gap-x-1">
+                        <span className="text-lg font-black text-clay-800 dark:text-clay-400 tabular-nums">₹{formatINR(displayPrice)}</span>
                         <span className="text-xs font-bold text-warmgray-400">/kg</span>
                       </div>
                     </div>
@@ -797,8 +797,8 @@ export default function Home() {
         </Card>
 
         <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0 overflow-hidden">
-          <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50">Current Bill</h2>
+          <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex flex-wrap justify-between items-center gap-2">
+            <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50 whitespace-nowrap">Current Bill</h2>
 
             <div className="flex items-center gap-2">
               {cart.length > 0 && (

@@ -86,41 +86,83 @@ function IconSlot({ children, className = "" }) {
 
 export default function Sidebar() {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const { user } = useAuth();
   const { darkMode, toggleTheme } = useTheme();
   const pathname = usePathname();
 
+  // Below `lg` the aside is an off-canvas drawer rather than a collapsible
+  // column, so it's always rendered at full width/labels-visible whenever
+  // it's open - `isExpanded` (the desktop collapse toggle) is irrelevant
+  // there. `showLabels` is what every label/max-width toggle below reacts
+  // to; `isExpanded` alone still gates the desktop-only column width.
+  const showLabels = isExpanded || isMobileOpen;
+
+  const handleToggleClick = () => {
+    if (isMobileOpen) {
+      setIsMobileOpen(false);
+    } else {
+      setIsExpanded((e) => !e);
+    }
+  };
+
   return (
-    <aside
-      className={`bg-white dark:bg-warmgray-900 text-ink-900 dark:text-ink-50 flex flex-col transition-all duration-300 z-50 border-r border-warmgray-200 dark:border-warmgray-700 h-screen flex-shrink-0 shadow-sm
-      ${isExpanded ? "w-64" : "w-20"}`}
-    >
-      {/* Brand / Toggle Area - the toggle button always sits at the same
-          offset regardless of expanded state (first in the row, fixed
-          padding); only the brand text grows/fades in beside it, so the
-          button itself never shifts position when clicked. */}
-      <div className="h-20 flex items-center gap-2.5 px-4 border-b border-warmgray-100 dark:border-warmgray-700">
+    <>
+      {/* Mobile top bar - the aside is off-canvas by default below `lg`, so
+          this fixed bar is what stays reachable to open it. Hidden at `lg+`
+          where the aside is always part of the layout. */}
+      <div className="lg:hidden fixed top-0 inset-x-0 h-16 z-30 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex items-center gap-3 px-4">
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-label={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
-          className="group p-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
+          onClick={() => setIsMobileOpen(true)}
+          aria-label="Open menu"
+          className="group p-2.5 -ml-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
         >
           <IconSlot>
-            <SidebarToggleIcon open={isExpanded} />
+            <SidebarToggleIcon open={false} />
           </IconSlot>
         </button>
-
-        <div
-          className={`flex items-center gap-2.5 overflow-hidden transition-all duration-300 ease-in-out ${
-            isExpanded ? "max-w-[180px] opacity-100" : "max-w-0 opacity-0"
-          }`}
-        >
-          <div className="w-9 h-9 rounded-xl bg-clay-400 flex items-center justify-center flex-shrink-0 shadow-sm shadow-clay-400/30">
-            <Leaf className="w-5 h-5 text-white" />
-          </div>
-          <span className="font-black text-lg tracking-wide text-ink-900 dark:text-ink-50 leading-none whitespace-nowrap">POS System</span>
+        <div className="w-8 h-8 rounded-lg bg-clay-400 flex items-center justify-center flex-shrink-0 shadow-sm shadow-clay-400/30">
+          <Leaf className="w-4 h-4 text-white" />
         </div>
+        <span className="font-black text-base tracking-wide text-ink-900 dark:text-ink-50 leading-none">POS System</span>
       </div>
+
+      {/* Backdrop - closes the drawer on tap, only present while it's open. */}
+      {isMobileOpen && (
+        <div className="lg:hidden fixed inset-0 bg-ink-900/50 z-40" onClick={() => setIsMobileOpen(false)} aria-hidden="true" />
+      )}
+
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 bg-white dark:bg-warmgray-900 text-ink-900 dark:text-ink-50 flex flex-col transition-all duration-300 z-50 border-r border-warmgray-200 dark:border-warmgray-700 h-screen flex-shrink-0 shadow-sm
+        w-64 ${isExpanded ? "lg:w-64" : "lg:w-20"}
+        ${isMobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
+      >
+        {/* Brand / Toggle Area - the toggle button always sits at the same
+            offset regardless of expanded state (first in the row, fixed
+            padding); only the brand text grows/fades in beside it, so the
+            button itself never shifts position when clicked. */}
+        <div className="h-20 flex items-center gap-2.5 px-4 border-b border-warmgray-100 dark:border-warmgray-700">
+          <button
+            onClick={handleToggleClick}
+            aria-label={isMobileOpen ? "Close menu" : isExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            className="group p-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
+          >
+            <IconSlot>
+              <SidebarToggleIcon open={showLabels} />
+            </IconSlot>
+          </button>
+
+          <div
+            className={`flex items-center gap-2.5 overflow-hidden transition-all duration-300 ease-in-out ${
+              showLabels ? "max-w-[200px] opacity-100" : "max-w-0 opacity-0"
+            }`}
+          >
+            <div className="w-9 h-9 rounded-xl bg-clay-400 flex items-center justify-center flex-shrink-0 shadow-sm shadow-clay-400/30">
+              <Leaf className="w-5 h-5 text-white" />
+            </div>
+            <span className="font-black text-lg tracking-wide text-ink-900 dark:text-ink-50 leading-none whitespace-nowrap">POS System</span>
+          </div>
+        </div>
 
       {/* Navigation Links - icons sit at a fixed offset (p-3.5, no
           justify-center toggle); only the label's max-width/opacity
@@ -134,12 +176,13 @@ export default function Sidebar() {
             <Link
               key={item.path}
               href={item.path}
+              onClick={() => setIsMobileOpen(false)}
               className={`group flex items-center gap-4 p-3.5 rounded-xl transition-colors font-semibold border-l-[3px] ${
                 isActive
                   ? "bg-clay-50 dark:bg-clay-950/40 border-clay-600 text-clay-800 dark:text-clay-300"
                   : "border-transparent text-warmgray-600 dark:text-warmgray-400 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 hover:text-ink-900 dark:hover:text-ink-50"
               }`}
-              title={!isExpanded ? item.name : ""}
+              title={!showLabels ? item.name : ""}
               aria-label={item.name}
             >
               <IconSlot>
@@ -151,7 +194,7 @@ export default function Sidebar() {
               </IconSlot>
               <span
                 className={`whitespace-nowrap text-sm overflow-hidden transition-all duration-300 ease-in-out ${
-                  isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
+                  showLabels ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
                 }`}
               >
                 {item.name}
@@ -168,7 +211,7 @@ export default function Sidebar() {
           onClick={toggleTheme}
           aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
           className={`group w-full flex items-center p-2.5 rounded-xl border border-warmgray-200 dark:border-warmgray-700 bg-warmgray-50 dark:bg-warmgray-800 text-warmgray-700 dark:text-warmgray-300 hover:bg-warmgray-100 dark:hover:bg-warmgray-700 transition-colors ${
-            isExpanded ? "justify-start gap-3" : "justify-center gap-0"
+            showLabels ? "justify-start gap-3" : "justify-center gap-0"
           }`}
           title="Toggle Theme"
         >
@@ -177,7 +220,7 @@ export default function Sidebar() {
           </IconSlot>
           <span
             className={`text-xs font-bold uppercase tracking-wider whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${
-              isExpanded ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
+              showLabels ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
             {darkMode ? "Dark Mode" : "Light Mode"}
@@ -185,7 +228,7 @@ export default function Sidebar() {
         </button>
 
         {/* Profile */}
-        <div className={`flex items-center ${isExpanded ? "justify-start gap-3" : "justify-center gap-0"}`}>
+        <div className={`flex items-center ${showLabels ? "justify-start gap-3" : "justify-center gap-0"}`}>
           <div className="relative flex-shrink-0">
             <div className="w-10 h-10 rounded-full bg-clay-50 dark:bg-clay-950/40 flex items-center justify-center text-clay-800 dark:text-clay-300 font-bold border border-clay-200 dark:border-clay-800 uppercase">
               {user?.email?.[0] || "U"}
@@ -194,7 +237,7 @@ export default function Sidebar() {
           </div>
           <div
             className={`overflow-hidden transition-all duration-300 ease-in-out ${
-              isExpanded ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
+              showLabels ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
             <p className="text-sm font-bold text-ink-900 dark:text-ink-50 whitespace-nowrap truncate">{user?.email || "User"}</p>
@@ -207,23 +250,24 @@ export default function Sidebar() {
           onClick={() => signOut(auth)}
           aria-label="Sign Out"
           className={`group w-full flex items-center p-2.5 rounded-xl text-rust-500 bg-rust-50 dark:bg-rust-950/50 hover:bg-rust-100 dark:hover:bg-rust-900 transition-colors ${
-            isExpanded ? "justify-start gap-3" : "justify-center gap-0"
+            showLabels ? "justify-start gap-3" : "justify-center gap-0"
           }`}
-          title={!isExpanded ? "Sign Out" : ""}
+          title={!showLabels ? "Sign Out" : ""}
         >
           <IconSlot>
             <LogOut className="w-5 h-5" />
           </IconSlot>
           <span
             className={`text-sm font-bold whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${
-              isExpanded ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
+              showLabels ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
             Sign Out
           </span>
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

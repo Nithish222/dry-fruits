@@ -107,7 +107,7 @@ export default function PurchaseHistoryPage() {
               ))
             ) : filteredRecords.length === 0 ? (
               <tr>
-                <td colSpan="5" className="text-center py-10 text-warmgray-500 dark:text-warmgray-400">
+                <td colSpan="5" className="text-left px-6 py-10 text-warmgray-500 dark:text-warmgray-400">
                   {searchQuery ? "No matching purchases found." : "No purchase history found."}
                 </td>
               </tr>

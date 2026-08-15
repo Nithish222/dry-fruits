@@ -341,13 +341,13 @@ export default function ReceiveStockForm() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
                     type="number"
                     min="0"
                     step="0.001"
                     size="sm"
-                    className="w-28 flex-shrink-0"
+                    className="w-24 flex-shrink-0"
                     placeholder="Weight (kg)"
                     value={line.weightKg}
                     onChange={(e) => updateLine(index, { weightKg: e.target.value })}
@@ -357,7 +357,7 @@ export default function ReceiveStockForm() {
                     min="0"
                     step="0.01"
                     size="sm"
-                    className="w-28 flex-shrink-0"
+                    className="w-24 flex-shrink-0"
                     placeholder="Cost/kg"
                     value={line.costPerKg}
                     onChange={(e) => updateLine(index, { costPerKg: e.target.value })}

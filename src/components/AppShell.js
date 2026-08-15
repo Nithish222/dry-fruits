@@ -21,7 +21,7 @@ export default function AppShell({ children }) {
   return (
     <div className="h-full m-0 p-0 flex overflow-hidden bg-cream-50 dark:bg-cream-950 font-sans">
       <Sidebar />
-      <main className="flex-1 h-full overflow-y-auto bg-cream-50 dark:bg-cream-950">
+      <main className="flex-1 h-full overflow-y-auto bg-cream-50 dark:bg-cream-950 pt-16 lg:pt-0">
         {children}
       </main>
     </div>

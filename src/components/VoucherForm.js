@@ -147,10 +147,10 @@ export default function VoucherForm({ onPosted }) {
 
         <div className="space-y-2">
           {lines.map((line, index) => (
-            <div key={index} className="flex items-center gap-2">
+            <div key={index} className="flex flex-wrap items-center gap-2">
               <Select
                 size="sm"
-                className="flex-1 min-w-0"
+                className="flex-1 min-w-[140px]"
                 value={line.accountId}
                 onChange={(e) => updateLine(index, { accountId: e.target.value })}
                 disabled={loadingAccounts}
@@ -171,7 +171,7 @@ export default function VoucherForm({ onPosted }) {
                 min="0"
                 step="0.01"
                 size="sm"
-                className="w-28 flex-shrink-0 font-bold"
+                className="w-24 flex-shrink-0 font-bold"
                 placeholder="Amount"
                 value={line.amount}
                 onChange={(e) => updateLine(index, { amount: e.target.value })}
