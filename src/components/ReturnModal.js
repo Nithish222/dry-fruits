@@ -22,13 +22,13 @@ function buildInitialQuantities(items) {
 function buildResultMessage({ creditReduction, cashOrGpayRefund }, viaGpay) {
   if (creditReduction > 0 && cashOrGpayRefund > 0) {
     return `₹${formatINR(creditReduction)} credited toward their Udhaar balance. Refund the remaining ₹${formatINR(cashOrGpayRefund)} to the customer${
-      viaGpay ? " via GPay" : ""
+      viaGpay ? " via UPI" : ""
     }.`;
   }
   if (creditReduction > 0) {
     return `₹${formatINR(creditReduction)} fully credited toward their Udhaar balance — no refund owed.`;
   }
-  return `Refund ₹${formatINR(cashOrGpayRefund)} to the customer${viaGpay ? " via GPay" : " in cash"}.`;
+  return `Refund ₹${formatINR(cashOrGpayRefund)} to the customer${viaGpay ? " via UPI" : " in cash"}.`;
 }
 
 // The parent keys this component by transaction id (falling back to "none"

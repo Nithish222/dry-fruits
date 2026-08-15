@@ -22,6 +22,17 @@ export function formatINR(value) {
   });
 }
 
+// Display label only - the stored payment.mode value stays "gpay" (it's
+// the accounting ledger key too, see systemAccounts.js's gpayClearing and
+// khataVouchers.js's routing), so renaming what's shown to a customer/
+// cashier doesn't touch historical transactions or account routing.
+export function formatPaymentMode(mode) {
+  if (mode === "gpay") return "UPI";
+  if (mode === "cash") return "Cash";
+  if (mode === "credit") return "Credit";
+  return mode || "";
+}
+
 // Accepts a Firestore Timestamp ({seconds}), a JS Date, or a "YYYY-MM-DD"
 // string. The string form is parsed as plain calendar-date parts, not
 // through Date's own string parsing (which reads "YYYY-MM-DD" as UTC

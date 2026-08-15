@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
@@ -172,7 +172,9 @@ export default function Home() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [sortBy, setSortBy] = useState("popularity"); // "popularity" | "az" | "price"
   const [productSalesCounts, setProductSalesCounts] = useState({}); // { [productId]: timesOrdered }
+  const [popularityLoading, setPopularityLoading] = useState(true);
   const [cart, setCart] = useState([]);
+  const billPanelRef = useRef(null);
   const [priceType, setPriceType] = useState("retail");
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
@@ -245,6 +247,8 @@ export default function Home() {
         setProductSalesCounts(counts);
       } catch (error) {
         console.error("Error computing product popularity: ", error);
+      } finally {
+        setPopularityLoading(false);
       }
     }
     fetchPopularity();
@@ -333,6 +337,15 @@ export default function Home() {
   }, [customerName, customerPhoneNumber, showCustomerSuggestions, allCustomers]);
 
   useEffect(() => {
+    // Picking a suggestion fills both fields with an exact match, which
+    // would otherwise re-trigger this same debounced search and pop the
+    // dropdown back open right after selection - the click handler already
+    // hides it, so just skip re-searching while the fields still match
+    // what's currently selected.
+    if (selectedCustomer && customerName === selectedCustomer.name && customerPhoneNumber === selectedCustomer.phoneNumber) {
+      return;
+    }
+
     const nameQuery = customerName.trim().toLowerCase();
     const phoneQuery = customerPhoneNumber.trim().toLowerCase();
 
@@ -354,7 +367,7 @@ export default function Home() {
     }, 300); // Debounce search
 
     return () => clearTimeout(handler);
-  }, [customerName, customerPhoneNumber, allCustomers]);
+  }, [customerName, customerPhoneNumber, allCustomers, selectedCustomer]);
 
   const categoryCounts = products.reduce((acc, p) => {
     const category = (p.category || "").trim();
@@ -732,7 +745,7 @@ export default function Home() {
           </div>
 
           <div className="lg:flex-1 lg:overflow-y-auto pr-2 pt-1">
-            {loading ? (
+            {loading || (sortBy === "popularity" && popularityLoading) ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {Array.from({ length: CATALOG_SKELETON_TILES }).map((_, i) => (
                   <Skeleton key={i} className="h-40 rounded-2xl" />
@@ -797,7 +810,10 @@ export default function Home() {
         </Card>
 
         <Card padding="p-0" className="lg:col-span-5 xl:col-span-4 flex flex-col lg:min-h-0 overflow-hidden">
-          <div className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex flex-wrap justify-between items-center gap-2">
+          <div
+            ref={billPanelRef}
+            className="p-4 bg-white dark:bg-warmgray-900 border-b border-warmgray-200 dark:border-warmgray-700 flex flex-wrap justify-between items-center gap-2 scroll-mt-4"
+          >
             <h2 className="text-lg font-bold text-ink-900 dark:text-ink-50 whitespace-nowrap">Current Bill</h2>
 
             <div className="flex items-center gap-2">
@@ -906,8 +922,31 @@ export default function Home() {
             </Button>
           </div>
 
+          {/* Reserves clearance so the fixed mobile "View Cart" button below
+              never covers the Continue button once scrolled to the bottom -
+              a distinct spacer rather than extra padding on this div, so it
+              doesn't fight the shorthand p-5 above over which wins. */}
+          <div className="lg:hidden h-20 flex-shrink-0" aria-hidden="true" />
         </Card>
       </div>
+
+      {/* Below lg the catalog and bill panel are stacked and the page
+          scrolls as a whole (see the lg:-scoped flex-1/min-h-0 above) - this
+          jumps straight to the bill panel instead of making every checkout
+          a long scroll past the full catalog. */}
+      {cart.length > 0 && (checkoutStep === "cart") && (
+        <button
+          type="button"
+          onClick={() => billPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="lg:hidden fixed bottom-5 inset-x-4 z-30 flex items-center justify-between gap-3 px-5 py-3.5 rounded-2xl bg-clay-600 text-white font-bold shadow-lg shadow-clay-900/30 active:scale-[0.98] transition-transform"
+        >
+          <span className="flex items-center gap-2 whitespace-nowrap">
+            <ShoppingCart className="w-5 h-5 flex-shrink-0" />
+            View Cart ({cart.length})
+          </span>
+          <span className="text-lg tabular-nums whitespace-nowrap">₹{formatINR(cartTotal)}</span>
+        </button>
+      )}
 
       <Modal
         isOpen={checkoutStep === "review" || checkoutStep === "loading" || checkoutStep === "customer"}

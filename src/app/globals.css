@@ -129,6 +129,16 @@ body {
   }
 }
 
+/* Used by the Sidebar brand mark (CashewIcon) - two full turns landing
+   upside-down (720deg + 180deg), once on mount, rather than looping forever.
+   Ending mid-turn like this (rather than a static rotate-180 class layered
+   on top) keeps the motion continuous - no snap at the start or end from
+   the animated and resting transforms disagreeing. */
+@keyframes spin-twice {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(900deg); }
+}
+
 /* Used by the Admin category chip strip - the right-edge gradient fade is
    the scroll affordance, so the native scrollbar would be redundant clutter. */
 .scrollbar-none {

@@ -6,7 +6,8 @@ import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
-import { ShoppingCart, Tag, Receipt, Sun, Moon, LogOut, Leaf, LayoutDashboard, Wallet, BookOpen, PackageCheck, History } from "@/components/ui/icons";
+import { ShoppingCart, Tag, Receipt, Sun, Moon, LogOut, LayoutDashboard, Wallet, BookOpen, PackageCheck, History } from "@/components/ui/icons";
+import CashewIcon from "@/components/ui/CashewIcon";
 
 const NAV_ITEMS = [
   { name: "Register", path: "/", icon: ShoppingCart },
@@ -115,16 +116,16 @@ export default function Sidebar() {
         <button
           onClick={() => setIsMobileOpen(true)}
           aria-label="Open menu"
-          className="group p-2.5 -ml-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
+          className="group flex items-center justify-center p-2.5 -ml-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
         >
           <IconSlot>
             <SidebarToggleIcon open={false} />
           </IconSlot>
         </button>
         <div className="w-8 h-8 rounded-lg bg-clay-400 flex items-center justify-center flex-shrink-0 shadow-sm shadow-clay-400/30">
-          <Leaf className="w-4 h-4 text-white" />
+          <CashewIcon className="w-4 h-4 text-white animate-[spin-twice_1.2s_ease-out_forwards]" />
         </div>
-        <span className="font-black text-base tracking-wide text-ink-900 dark:text-ink-50 leading-none">POS System</span>
+        <span className="font-black text-base tracking-wide text-ink-900 dark:text-ink-50 leading-none">Southern Traders</span>
       </div>
 
       {/* Backdrop - closes the drawer on tap, only present while it's open. */}
@@ -145,7 +146,7 @@ export default function Sidebar() {
           <button
             onClick={handleToggleClick}
             aria-label={isMobileOpen ? "Close menu" : isExpanded ? "Collapse sidebar" : "Expand sidebar"}
-            className="group p-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
+            className="group flex items-center justify-center p-2.5 rounded-xl text-warmgray-500 dark:text-warmgray-400 hover:text-ink-900 dark:hover:text-ink-50 hover:bg-warmgray-100 dark:hover:bg-warmgray-800 transition-colors flex-shrink-0"
           >
             <IconSlot>
               <SidebarToggleIcon open={showLabels} />
@@ -153,14 +154,14 @@ export default function Sidebar() {
           </button>
 
           <div
-            className={`flex items-center gap-2.5 overflow-hidden transition-all duration-300 ease-in-out ${
+            className={`flex items-center gap-2.5 overflow-hidden lg:transition-all lg:duration-300 lg:ease-in-out ${
               showLabels ? "max-w-[200px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
             <div className="w-9 h-9 rounded-xl bg-clay-400 flex items-center justify-center flex-shrink-0 shadow-sm shadow-clay-400/30">
-              <Leaf className="w-5 h-5 text-white" />
+              <CashewIcon className="w-5 h-5 text-white animate-[spin-twice_1.2s_ease-out_forwards]" />
             </div>
-            <span className="font-black text-lg tracking-wide text-ink-900 dark:text-ink-50 leading-none whitespace-nowrap">POS System</span>
+            <span className="font-black text-sm tracking-wide text-ink-900 dark:text-ink-50 leading-tight">Southern Traders</span>
           </div>
         </div>
 
@@ -193,7 +194,7 @@ export default function Sidebar() {
                 />
               </IconSlot>
               <span
-                className={`whitespace-nowrap text-sm overflow-hidden transition-all duration-300 ease-in-out ${
+                className={`whitespace-nowrap text-sm overflow-hidden lg:transition-all lg:duration-300 lg:ease-in-out ${
                   showLabels ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
                 }`}
               >
@@ -206,20 +207,24 @@ export default function Sidebar() {
 
       {/* Theme Switcher & User Profile Bottom Section */}
       <div className="p-4 border-t border-warmgray-100 dark:border-warmgray-700 space-y-3">
-        {/* Theme Switch Button */}
+        {/* Theme Switch Button - icon sits at a fixed left offset like the
+            nav links above (no justify-center/justify-start toggle), so
+            collapsing/expanding never snaps it sideways; only the label's
+            max-width/opacity animates. */}
         <button
-          onClick={toggleTheme}
+          onClick={() => {
+            toggleTheme();
+            setIsMobileOpen(false);
+          }}
           aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          className={`group w-full flex items-center p-2.5 rounded-xl border border-warmgray-200 dark:border-warmgray-700 bg-warmgray-50 dark:bg-warmgray-800 text-warmgray-700 dark:text-warmgray-300 hover:bg-warmgray-100 dark:hover:bg-warmgray-700 transition-colors ${
-            showLabels ? "justify-start gap-3" : "justify-center gap-0"
-          }`}
+          className="group w-full flex items-center gap-3 p-2.5 rounded-xl border border-warmgray-200 dark:border-warmgray-700 bg-warmgray-50 dark:bg-warmgray-800 text-warmgray-700 dark:text-warmgray-300 hover:bg-warmgray-100 dark:hover:bg-warmgray-700 transition-colors"
           title="Toggle Theme"
         >
           <IconSlot>
             <ThemeIcon dark={darkMode} />
           </IconSlot>
           <span
-            className={`text-xs font-bold uppercase tracking-wider whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${
+            className={`text-xs font-bold uppercase tracking-wider whitespace-nowrap overflow-hidden lg:transition-all lg:duration-300 lg:ease-in-out ${
               showLabels ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
@@ -227,8 +232,8 @@ export default function Sidebar() {
           </span>
         </button>
 
-        {/* Profile */}
-        <div className={`flex items-center ${showLabels ? "justify-start gap-3" : "justify-center gap-0"}`}>
+        {/* Profile - same fixed-left-icon rule as above. */}
+        <div className="flex items-center gap-3">
           <div className="relative flex-shrink-0">
             <div className="w-10 h-10 rounded-full bg-clay-50 dark:bg-clay-950/40 flex items-center justify-center text-clay-800 dark:text-clay-300 font-bold border border-clay-200 dark:border-clay-800 uppercase">
               {user?.email?.[0] || "U"}
@@ -236,7 +241,7 @@ export default function Sidebar() {
             <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-sage-500 border-2 border-white dark:border-warmgray-900 animate-pulse" />
           </div>
           <div
-            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            className={`overflow-hidden lg:transition-all lg:duration-300 lg:ease-in-out ${
               showLabels ? "max-w-[160px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
@@ -245,20 +250,21 @@ export default function Sidebar() {
           </div>
         </div>
 
-        {/* Sign Out Button */}
+        {/* Sign Out Button - same fixed-left-icon rule as above. */}
         <button
-          onClick={() => signOut(auth)}
+          onClick={() => {
+            signOut(auth);
+            setIsMobileOpen(false);
+          }}
           aria-label="Sign Out"
-          className={`group w-full flex items-center p-2.5 rounded-xl text-rust-500 bg-rust-50 dark:bg-rust-950/50 hover:bg-rust-100 dark:hover:bg-rust-900 transition-colors ${
-            showLabels ? "justify-start gap-3" : "justify-center gap-0"
-          }`}
+          className="group w-full flex items-center gap-3 p-2.5 rounded-xl text-rust-500 bg-rust-50 dark:bg-rust-950/50 hover:bg-rust-100 dark:hover:bg-rust-900 transition-colors"
           title={!showLabels ? "Sign Out" : ""}
         >
           <IconSlot>
             <LogOut className="w-5 h-5" />
           </IconSlot>
           <span
-            className={`text-sm font-bold whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${
+            className={`text-sm font-bold whitespace-nowrap overflow-hidden lg:transition-all lg:duration-300 lg:ease-in-out ${
               showLabels ? "max-w-[120px] opacity-100" : "max-w-0 opacity-0"
             }`}
           >
